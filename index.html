@@ -1,0 +1,855 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bedworth House Shortlist</title>
+<meta name="apple-mobile-web-app-title" content="House Map">
+<meta name="theme-color" content="#2d6a44">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Source+Sans+3:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+/* Layout: map-first tool. Filters + list on the left (stacks under the map on phones); a detail sheet opens over the list when a pin is clicked. Green pins = worth a viewing. */
+:root {
+  --bg: #eef1ee;
+  --surface: #ffffff;
+  --ink: #17201b;
+  --muted: #5a665e;
+  --line: #d4dbd5;
+  --chip: #e4ebe6;
+  --lawn: #2d6a44;
+  --lawn-soft: #dcebe1;
+  --gold: #b8860b;
+  --gold-ink: #1f1700;
+  --gold-soft: #f6ecd0;
+  --amber: #8f5c0c;
+  --amber-soft: #f6ead2;
+  --brick: #9a3b2a;
+  --brick-soft: #f5e1dc;
+  --grey: #8b938e;
+  --pin: #ffffff;
+  --pin-ink: #17201b;
+  --shadow: 0 1px 2px rgba(20,30,24,.18), 0 4px 14px rgba(20,30,24,.12);
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111714; --surface: #19211d; --ink: #e6ede8; --muted: #9ba89f; --line: #2b3630; --chip: #232e28;
+    --lawn: #74c592; --lawn-soft: #1d3326; --gold: #e2b53e; --gold-ink: #1f1700; --gold-soft: #3a3016;
+    --amber: #e3b25c; --amber-soft: #3a2f1a; --brick: #e88b75; --brick-soft: #3d231d; --grey: #6f7872;
+    --pin: #f4f7f5; --pin-ink: #111714; --shadow: 0 1px 2px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111714; --surface: #19211d; --ink: #e6ede8; --muted: #9ba89f; --line: #2b3630; --chip: #232e28;
+  --lawn: #74c592; --lawn-soft: #1d3326; --gold: #e2b53e; --gold-ink: #1f1700; --gold-soft: #3a3016;
+  --amber: #e3b25c; --amber-soft: #3a2f1a; --brick: #e88b75; --brick-soft: #3d231d; --grey: #6f7872;
+  --pin: #f4f7f5; --pin-ink: #111714; --shadow: 0 1px 2px rgba(0,0,0,.5), 0 4px 14px rgba(0,0,0,.4);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.45 var(--body); }
+[hidden] { display: none !important; }
+button, select, input { font: inherit; color: inherit; }
+a { color: var(--lawn); }
+:focus-visible { outline: 2px solid var(--lawn); outline-offset: 2px; }
+
+.app { height: 100%; display: grid; grid-template-columns: minmax(320px, 400px) 1fr; grid-template-rows: auto minmax(0, 1fr); }
+.app.has-detail { grid-template-columns: minmax(300px, 380px) minmax(340px, 440px) 1fr; }
+aside.panel { grid-column: 1; grid-row: 2; }
+.mapwrap { grid-column: -2 / -1; grid-row: 2; }
+header.top { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); border-bottom: 1px solid var(--line); background: var(--surface); }
+.brand { display: flex; flex-direction: column; min-width: 0; margin-right: auto; }
+.brand h1 { margin: 0; font: 800 1.3rem/1.1 var(--display); letter-spacing: -.01em; text-wrap: balance; }
+.brand p { margin: 2px 0 0; color: var(--muted); font-size: .86rem; font-variant-numeric: tabular-nums; }
+.mapmode { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: .85rem; color: var(--muted); }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 11px; cursor: pointer; font-weight: 600; font-size: .85rem; }
+.btn:hover { border-color: var(--lawn); }
+.btn.primary { background: var(--lawn); border-color: var(--lawn); color: var(--surface); }
+
+aside.panel { position: relative; overflow: hidden; border-right: 1px solid var(--line); background: var(--bg); min-width: 0; display: flex; flex-direction: column; }
+.filters { padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; background: var(--surface); }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.seg button { flex: 1; border: 0; background: transparent; padding: 6px 8px; font-weight: 600; font-size: .84rem; cursor: pointer; border-right: 1px solid var(--line); white-space: nowrap; }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.areaseg { background: var(--bg); }
+.areaseg button { padding: 7px 14px; font-size: .9rem; }
+.areaseg button .n { font-weight: 400; opacity: .7; margin-left: 4px; font-variant-numeric: tabular-nums; }
+@media (max-width: 820px) { .areaseg { order: 3; width: 100%; } .areaseg button { padding: 7px 6px; font-size: .84rem; } }
+.frow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.frow select, .search { width: 100%; padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: .84rem; }
+.sortrow { display: flex; align-items: center; gap: 8px; font-size: .8rem; font-weight: 600; color: var(--muted); }
+.sortrow .seg { flex: 1; min-width: 0; }
+.sortrow .seg button { flex: 1 1 auto; padding: 6px 6px; }
+.warnbar { font-size: .84rem; border: 1px solid var(--amber); background: var(--amber-soft); color: var(--ink); border-radius: 9px; padding: 8px 10px; margin: 0 2px 4px; }
+.counts { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.list { flex: 1; overflow-y: auto; padding-block: 10px 24px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: 16px; display: flex; flex-direction: column; gap: 6px; }
+.section-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 10px 2px 2px; }
+.section-h h2 { margin: 0; font: 700 .78rem/1 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.section-h span { font-size: .78rem; color: var(--muted); }
+.note { font-size: .84rem; color: var(--muted); margin: 0 2px 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: .78rem; color: var(--muted); margin: 0 2px; }
+.legend i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+
+
+.row { display: grid; grid-template-columns: 64px 1fr; gap: 0 10px; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; cursor: pointer; }
+.row:hover, .row.active { border-color: var(--lawn); }
+.row .p { font: 700 .95rem/1.3 var(--display); font-variant-numeric: tabular-nums; grid-row: 1 / span 2; }
+.row .s { font-weight: 600; font-size: .9rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .m { font-size: .78rem; color: var(--muted); min-width: 0; }
+.row.sold { opacity: .6; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.chip { font-size: .72rem; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--chip); color: var(--ink); white-space: nowrap; }
+.chip.garden { background: var(--lawn-soft); color: var(--lawn); }
+.chip.warn { background: var(--amber-soft); color: var(--amber); }
+.chip.bad { background: var(--brick-soft); color: var(--brick); }
+.chip.new { background: var(--ink); color: var(--surface); }
+.more { align-self: center; }
+
+#map { width: 100%; height: 100%; min-height: 300px; background: var(--chip); }
+.mapwrap { position: relative; min-width: 0; }
+.map-note { position: absolute; left: 12px; bottom: 26px; z-index: 500; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: .78rem; color: var(--muted); max-width: min(360px, calc(100% - 24px)); box-shadow: var(--shadow); }
+
+/* Pins */
+.pin-host { background: none !important; border: 0 !important; }
+.pin { position: absolute; transform: translate(-50%, calc(-100% - 6px)); display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px 3px 5px; border-radius: 999px; border: 1.5px solid var(--pin-ink); background: var(--pin); color: var(--pin-ink); font: 700 12px/1 var(--body); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; box-shadow: var(--shadow); }
+.pin::after { content: ""; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); border: 5px solid transparent; border-top-color: var(--pin-ink); border-bottom: 0; }
+.pin svg { width: 14px; height: 14px; flex: none; }
+.pin.good { background: var(--lawn); border-color: var(--lawn); color: var(--surface); z-index: 5; }
+.pin.good::after { border-top-color: var(--lawn); }
+.pin.sold { background: var(--chip); color: var(--muted); border-color: var(--grey); font-weight: 600; }
+.pin.sold::after { border-top-color: var(--grey); }
+.pin.active { transform: translate(-50%, calc(-100% - 6px)) scale(1.18); z-index: 20; outline: 3px solid var(--surface); }
+.pin:hover { z-index: 15; }
+/* zoomed out: pins become dots (green = worth a viewing) so the map stays readable */
+.z-low .pin:not(.active) { width: 12px; height: 12px; padding: 0; border-width: 2px; transform: translate(-50%, -50%); gap: 0; }
+.z-low .pin:not(.active) > * { display: none; }
+.z-low .pin:not(.active)::after { display: none; }
+.z-low .pin.sold:not(.active) { width: 8px; height: 8px; }
+
+/* Detail sheet */
+.detail { grid-column: 2; grid-row: 2; min-width: 0; background: var(--surface); border-right: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; }
+.detail-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.detail-head .pos { margin-right: auto; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.detail-head .btn { padding: 5px 9px; }
+.detail-head .btn:disabled { opacity: .4; cursor: default; }
+.kbd-hint { font-size: .75rem; color: var(--muted); margin: 8px 0 0; }
+.detail-body { padding: 0 16px 28px; display: flex; flex-direction: column; gap: 12px; }
+.photo { margin: 0 -16px; aspect-ratio: 3 / 2; max-width: calc(100% + 32px); background: var(--chip); overflow: hidden; }
+.photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.d-price { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.d-price strong { font: 800 1.9rem/1 var(--display); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.d-price span { color: var(--muted); font-size: .9rem; }
+.d-title { margin: 4px 0 0; font: 700 1.15rem/1.25 var(--display); text-wrap: balance; }
+.d-sub { margin: 2px 0 0; color: var(--muted); font-size: .9rem; }
+.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+.fact { background: var(--bg); border-radius: 8px; padding: 7px 10px; }
+.fact b { display: block; font-size: .7rem; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.fact span { font-weight: 600; font-variant-numeric: tabular-nums; }
+.block { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.block h3 { margin: 0 0 4px; font: 700 .78rem/1.2 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.block p { margin: 0; }
+.block.verdict.good { border-color: var(--lawn); background: var(--lawn-soft); }
+.block.verdict.mid { border-color: var(--amber); background: var(--amber-soft); }
+.block.verdict.bad { border-color: var(--brick); background: var(--brick-soft); }
+.vlabel { font: 700 1.08rem/1.25 var(--display); margin: 0 0 4px !important; }
+.block.verdict.good .vlabel { color: var(--lawn); }
+.block.verdict.mid .vlabel { color: var(--amber); }
+.block.verdict.bad .vlabel { color: var(--brick); }
+.pc { display: grid; grid-template-columns: 1fr; gap: 12px; }
+ul.pros, ul.cons { list-style: none; padding-left: 0; }
+ul.pros li, ul.cons li { padding-left: 22px; position: relative; }
+ul.pros li::before { content: "✓"; position: absolute; left: 2px; color: var(--lawn); font-weight: 700; }
+ul.cons li::before { content: "✗"; position: absolute; left: 3px; color: var(--brick); font-weight: 700; }
+.chip.v-good { background: var(--lawn-soft); color: var(--lawn); }
+.chip.v-mid { background: var(--amber-soft); color: var(--amber); }
+.chip.v-bad { background: var(--chip); color: var(--muted); }
+.block.garden { border-color: var(--lawn); }
+.quote { font-style: italic; color: var(--muted); }
+.conf { font-size: .7rem; letter-spacing: .03em; padding: 1px 6px; border-radius: 999px; text-transform: none; font-weight: 700; }
+.conf.ok { background: var(--lawn-soft); color: var(--lawn); }
+.conf.est { background: var(--amber-soft); color: var(--amber); }
+ul.pl { margin: 0; padding-left: 18px; }
+ul.pl li { margin: 2px 0; }
+.links { display: flex; flex-wrap: wrap; gap: 6px; }
+.links a { text-decoration: none; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-weight: 600; font-size: .85rem; color: var(--ink); }
+.links a.main { background: var(--lawn); border-color: var(--lawn); color: var(--surface); }
+.links a:hover { border-color: var(--lawn); }
+.small { font-size: .8rem; color: var(--muted); }
+
+.overlay { position: fixed; inset: 0; background: rgba(10,15,12,.45); z-index: 2000; display: grid; place-items: center; padding: 16px; }
+.dialog { background: var(--surface); color: var(--ink); border-radius: 12px; padding: 18px; width: min(460px, 100%); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px; }
+.dialog h2 { margin: 0; font: 700 1.15rem/1.2 var(--display); }
+.dialog p { margin: 0; font-size: .9rem; color: var(--muted); }
+.dialog input { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); font: 14px/1.3 ui-monospace, Consolas, monospace; }
+.dialog .row2 { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.leaflet-container { font: inherit; }
+.leaflet-control-attribution { font-size: 10px; }
+
+@media (max-width: 820px) {
+  .app { display: flex; flex-direction: column; height: auto; }
+  html, body { height: auto; }
+  header.top { order: 1; }
+  .mapwrap { order: 2; height: 60vh; }
+  aside.panel { order: 3; border-right: 0; overflow: visible; }
+  .list { overflow: visible; padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .filters { padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .detail { position: fixed; inset: auto 0 0 0; max-height: 70vh; border-radius: 14px 14px 0 0; box-shadow: 0 -6px 24px rgba(0,0,0,.25); z-index: 1500; padding-bottom: env(safe-area-inset-bottom, 0px); border-right: 0; }
+  .kbd-hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1>Bedworth House Shortlist</h1>
+      <p id="subtitle">Every 3+ bed house with a garage, asking ≤ £270,000 · loading listings…</p>
+    </div>
+    <div class="seg areaseg" role="group" aria-label="Area">
+      <button type="button" data-area="" aria-pressed="true">All areas</button>
+      <button type="button" data-area="bedworth" aria-pressed="false">Bedworth</button>
+      <button type="button" data-area="nuneaton" aria-pressed="false">Nuneaton</button>
+      <button type="button" data-area="coventry" aria-pressed="false">Coventry</button>
+    </div>
+    <div class="mapmode">
+      <span id="modeLabel">Map: street map</span>
+      <button class="btn primary" id="gBtn" type="button">Use Google Maps</button>
+      <button class="btn" id="kmlBtn" type="button" title="Download the visible pins as a KML file for Google My Maps">Export for My Maps</button>
+    </div>
+  </header>
+
+  <aside class="panel" aria-label="Houses">
+    <div class="filters">
+      <div class="seg" role="group" aria-label="Which houses to show">
+        <button type="button" id="showAvail" aria-pressed="true">Available only</button>
+        <button type="button" id="showAll" aria-pressed="false">Include sold STC</button>
+      </div>
+      <div class="sortrow"><span id="sortLbl">Sort</span>
+        <div class="seg" role="group" aria-labelledby="sortLbl">
+          <button type="button" data-sort="rec" aria-pressed="true">Recommended</button>
+          <button type="button" data-sort="price" aria-pressed="false">Cheapest</button>
+          <button type="button" data-sort="priceDesc" aria-pressed="false">Dearest</button>
+          <button type="button" data-sort="newest" aria-pressed="false">Newest</button>
+        </div>
+      </div>
+      <div class="frow">
+        <select id="fPrice" aria-label="Maximum price"><option value="270000">Up to £270k</option><option value="250000">Up to £250k</option><option value="225000">Up to £225k</option><option value="200000">Up to £200k</option><option value="175000">Up to £175k</option></select>
+        <select id="fGarage" aria-label="Garage type"><option value="">Any garage</option><option value="double">Double garage</option><option value="detached">Detached / rear</option><option value="integral">Integral / attached</option><option value="block">In a block</option></select>
+        <select id="fType" aria-label="House type"><option value="">Any type</option><option value="D">Detached</option><option value="S">Semi-detached</option><option value="TE">Terraced</option><option value="B">Bungalow</option></select>
+        <select id="fVerdict" aria-label="Verdict"><option value="">Any verdict</option><option value="good">Worth a viewing</option><option value="mid">Worth a viewing + Maybe</option></select>
+      </div>
+      <input class="search" id="fText" type="search" placeholder="Search street, area or postcode" aria-label="Search street, area or postcode">
+      <div class="counts" id="counts"></div>
+    </div>
+    <div class="list" id="list"></div>
+  </aside>
+
+  <section class="detail" id="detail" hidden aria-label="Selected house"></section>
+
+  <div class="mapwrap">
+    <div id="map" role="region" aria-label="Map of houses"></div>
+    <div class="map-note" id="mapNote" hidden></div>
+  </div>
+</div>
+
+<div class="overlay" id="keyDlg" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="keyTitle">
+    <h2 id="keyTitle">Switch to Google Maps</h2>
+    <p>Google requires a Maps JavaScript API key. Create one free in Google Cloud Console (APIs &amp; Services → Credentials, then enable “Maps JavaScript API”) and paste it here. It is saved only in this browser.</p>
+    <label for="gkey" class="small">API key</label>
+    <input id="gkey" type="text" autocomplete="off" spellcheck="false" placeholder="AIza…">
+    <div class="row2">
+      <button class="btn" id="keyRemove" type="button">Remove key</button>
+      <button class="btn" id="keyCancel" type="button">Cancel</button>
+      <button class="btn primary" id="keySave" type="button">Save and load Google Maps</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function main(DATA) {
+// Optional: paste a Google Maps JavaScript API key here instead of using the in-page button.
+const GOOGLE_MAPS_API_KEY = "";
+
+const RM = id => `https://www.rightmove.co.uk/properties/${id}`;
+const OTM = id => `https://www.onthemarket.com/details/${id}/`;
+const ZP = id => `https://www.zoopla.co.uk/for-sale/details/${id}/`;
+
+// ---------- Houses I checked closely: garden measured from aerial imagery, garage confirmed ----------
+// These get a boost in the Recommended sort, and my notes replace the listing-text versions.
+const PICKS = {
+  89626383: { why: "A proper detached garage that's bigger than usual, plus a long lawn backing onto woodland, for £31k under budget. No other house pairs the two this well without a catch.",
+    garden: "About 25 m long × 8 m wide (~200 m²), mostly lawn, backing onto mature woodland. Measured by me from aerial imagery; the agent calls it “particularly long”.",
+    garage: "Detached, “larger than average”, reached from the rear. Driveway parking at the front too.",
+    pros: ["Long lawn with a private woodland backdrop", "Bigger-than-usual detached garage", "Already reduced (14 Oct)"],
+    cons: ["Smallish house (750 sq ft)", "One bathroom"], reno: "Nothing flagged. Check kitchen and bathroom age.",
+    links: [["Rightmove", RM(89626383)]] },
+  91464249: { lat: 52.4411724, lng: -1.4759633, street: "141 Hall Green Road",
+    why: "Detached double garage plus one of the biggest plots in budget: a corner garden of roughly 28 × 14 m with a big lawn. The best garden-and-garage combination for £250k.",
+    garden: "Corner plot, roughly 28 m × 14 m (~350–400 m²), with a big lawn, mature planting and a fishpond. Measured by me from aerial imagery. The floorplan gives the house as No. 141; the portal pin was about 120 m off, so this marker uses the real address.",
+    garage: "Detached double garage, 4.52 m × 5.16 m on the floorplan: compact for two cars and short for a large one. Parking for several cars.",
+    pros: ["One of the largest plots found", "Double garage and lots of parking", "Sun lounge, two receptions, multi-fuel stove"],
+    cons: ["Faces the B4109, a busy bus route", "Double garage is on the small side"], reno: "None flagged by the agent.",
+    links: [["Rightmove", RM(91464249)], ["OnTheMarket", OTM(20040919)], ["Zoopla", ZP(73854776)]] },
+  88507479: { why: "The most outdoor space per pound anywhere in the search: a big garden plus extra land beside Stubbs Pool for £220k. One condition: the garage is narrow, so check your car fits.",
+    garden: "Main garden about 25 × 12 m (~300 m²), plus a walk-through to an extra plot beside Stubbs Pool. The agent shows it on a drone photo but gives no size. Measured by me from aerial imagery.",
+    garage: "Attached at the side, 2.25 m × 4.81 m (7'5\" × 15'9\") on the floorplan. Fine for a small car or storage; tight for a family car.",
+    pros: ["Huge outdoor space for the price", "972 sq ft including garage; driveway"], cons: ["Narrow garage", "Bedroom 3 is small", "Confirm the extra land is on the same title"], reno: "Nothing major flagged.",
+    links: [["Rightmove", RM(88507479)], ["Zoopla", ZP(73197992)]] },
+  92878692: { why: "The cheapest house worth buying: a 35–40 m garden with a garage and rear driveway at the bottom, £85k under budget. Nothing else this cheap has this much garden plus a garage.",
+    garden: "About 35–40 m long × 7 m wide (~250 m²), including the rear drive. Measured by me from aerial imagery.",
+    garage: "At the bottom of the garden, off a rear driveway (detached). The seller wrote the listing and there's no garage photo, so check it on a viewing.",
+    pros: ["£185k", "Very long garden", "Rear parking plus garage", "Council tax band A"], cons: ["Mid-terrace, narrow plot", "Garage not shown in photos"], reno: "None flagged; well presented.",
+    links: [["Rightmove", RM(92878692)], ["OnTheMarket", OTM(20289134)], ["Zoopla", ZP(74175689)]] },
+  92858820: { why: "If garden size matters most, this wins outright: the deepest garden I found, a detached double garage and three double bedrooms. Worth it even at your £270k ceiling.",
+    garden: "About 35–45 m deep × 13 m (~450–550 m²): lawn, then landscaped and gravelled areas, then a play area. Measured by me from aerial imagery plus the listing.",
+    garage: "Detached double garage at the very rear, reached from its own rear drive.",
+    pros: ["Biggest garden and a double garage", "1,033 sq ft; three double bedrooms"], cons: ["At your £270k ceiling", "Faces the A47/A444 junction (traffic noise)", "Council tax band D"], reno: "None flagged.",
+    links: [["Rightmove", RM(92858820)]] },
+  93724962: { why: "Big lawn, a detached garage inside a gated courtyard, no chain and council tax band A, about 2 miles from Bedworth.",
+    garden: "The agent calls it a “massive rear garden”; I measure about 20–25 × 12 m (~250–300 m²) plus a paved courtyard.",
+    garage: "Detached garage in a large paved courtyard with secure gated rear access.",
+    pros: ["Large lawn plus secure parking yard", "No onward chain", "Band A council tax"], cons: ["“Offers over £240k”, so expect to pay more", "On a through road"], reno: "None flagged.",
+    links: [["Rightmove", RM(93724962)], ["Zoopla", ZP(74368883)]] },
+  88349331: { why: "The best single-storey option: detached garage plus carport, a mature 25 × 14 m garden, and the kitchen and bathroom already renovated. The top choice if a bungalow suits you.",
+    garden: "Large mature garden with shed and greenhouses, about 25 × 14 m (~350 m²). Measured by me from aerial imagery.",
+    garage: "Shown as a separate building on the floorplan (detached), plus a carport and driveway.",
+    pros: ["Single-storey living", "Kitchen and bathroom renovated; boiler 3 years old", "Probate already granted"], cons: ["“Offers over £245k”", "Bungalows attract strong competition"], reno: "Little needed.",
+    links: [["Rightmove", RM(88349331)], ["OnTheMarket", OTM(19460677)]] }
+};
+
+// ---------- My notes on other houses I looked at closely ----------
+const NOTES = {
+  91713468: "Cheap (offers over £190k), separate garage off a shared rear drive, garden about 25 × 7 m with fields opposite. Catch: mid-terrace with a shower room only and a narrower garden than the best options.",
+  92688177: "Garden about 20 × 8 m on two tiers with allotment views. Catch: the detached garage only suits a smaller car, and the garden is medium-sized.",
+  88498815: "Lots of house (1,286 sq ft) and a big rear garage for £200k, with a 30 × 5.5 m garden backing onto allotments. Catch: needs modernising inside and out, and the garden is very narrow.",
+  91630716: "Substantial detached garage/workshop and a well-kept garden of about 25 × 7 m. Catch: dated (one owner since new) and the garden is average width.",
+  94515336: "4 beds and 3 bathrooms in excellent condition, large garage, garden about 22 × 9 m. Catch: the lawn is artificial and the garage's position isn't stated.",
+  92594802: "Detached house on a big corner plot near Bedworth centre. Catch: Modern Method of Auction adds a non-refundable reservation fee, it needs refurbishment, and the “outbuilding/garage” may not take a car.",
+  93945636: "Detached, 1,232 sq ft, double garage. Catch: the agent describes it as in very poor condition and needing full renovation.",
+  174707330: "Period end-terrace, detached rear garage, garden about 30 × 8 m. Catch: the agent charges a buyer's fee on top, the EPC is E, and it's pricey for a terrace.",
+  164653283: "Very long garden plus an extra parcel of land and a detached garage. Only catch: it's “offers over £270k”, so above your ceiling. Watch for a reduction.",
+  89310141: "Detached with field views. Catch: “offers over £270k” (likely above budget) and an average-sized garden.",
+  91647645: "Detached, garden about 20 × 9 m. The same house is also listed by Hopkins & Dainty (Rightmove 88354434). Catch: average garden for the price.",
+  88354434: "Same house as Rightmove 91647645 (Radnor Drive), listed by a second agent.",
+  93709899: "South-facing garden about 20 × 6 m, rear garage, no chain, £190k. Catch: small garden and about 6 miles from Bedworth.",
+  92674578: "Garage with rear access and a good-sized garden for offers over £180k. Catch: thin online-agent listing; worth a look on value alone.",
+  93923985: "Semi with a garage and a “generous” garden, offers over £195k. Catch: I couldn't confirm the garden size from the air.",
+  93641577: "Detached corner plot, separate garage, chain free. Catch: the garden is ordinary and bedroom 3 is small.",
+  91575516: "4-bed semi on a corner plot with a garage. Catch: from the air the garden is average (about 15 m), not large.",
+  172978388: "Corner plot with a rear garage, needs refurbishment. Catch: from the air the garden is modest.",
+  91729611: "Semi-detached bungalow with a garage and a landscaped garden. Catch: the garden measures only about 12–15 m.",
+  93434208: "Big 20' × 11' detached garage, but this is shared ownership: the £162,500 is likely for a share, not the whole house.",
+  92225619: "Timber garage plus carport for £180k, but leasehold with about 37 years left, so cash buyers only. Avoid unless you're a cash buyer.",
+  94395729: "£70k guide price at auction, end-terrace with a rear garage, needs work. Auction rules apply (fast completion, fees).",
+  90995856: "The agent says “remarkably large rear garden” with a garage at the end, £220k. The map pin is approximate so I couldn't measure it. Worth a viewing.",
+  94033116: "A long garden running to a rear garage, £210k, needs updating. Catch: Stoke/Walsgrave edge, furthest from Bedworth."
+};
+
+const TYPE = { D: "Detached house", S: "Semi-detached house", T: "Terraced house", E: "End-of-terrace house", B: "Bungalow", L: "Link-detached house", M: "Town house", H: "House" };
+const FLAG = { MMoA: ["Modern Method of Auction: extra non-refundable reservation fee", "bad"], auction: ["Auction sale", "bad"], buyerfee: ["Buyer's fee on top of price", "warn"], shared: ["Shared ownership: price may be for a share", "bad"], "cash/nonstd": ["Mentions cash buyers / non-standard construction", "warn"], reno: ["Needs updating", "warn"], lease37: ["Short lease (~37 years)", "bad"], shortlease: ["Short lease: check years left", "bad"], age: ["Age-restricted", "warn"] };
+const garageText = g => {
+  const q = g.endsWith("?"); const b = g.replace("?", "");
+  const base = { "Double-Detached": "Detached double garage", "Double-Unstated": "Double garage", "Double-Integral": "Integral double garage", Detached: "Detached / rear garage", Integral: "Integral garage", Attached: "Attached (side) garage", Block: "Garage in a separate block", Unstated: "Garage (position not stated)" }[b] || "Garage";
+  return q ? base + " (check)" : base;
+};
+const garageShort = g => { const b = g.replace("?", ""); return ({ "Double-Detached": "Double, detached", "Double-Unstated": "Double", Detached: "Detached", Integral: "Integral", Attached: "Attached", Block: "In block", Unstated: "Garage" }[b] || "Garage") + (g.endsWith("?") ? "?" : ""); };
+const fmtK = n => "£" + Math.round(n / 1000) + "k";
+const fmt = n => "£" + n.toLocaleString("en-GB");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const STATUS = ["Available", "Sold STC", "Under offer"];
+
+// status 3 = no longer on Rightmove: kept in listings.json for history, never shown
+const HOUSES = DATA.houses.filter(r => r.status !== 3).map(r => {
+  const { id, lat, lng, price, qual, beds, addr, pc, garage, gq, gdq, flags, status, agent, img } = r;
+  const type = TYPE[r.type] ? r.type : "H";
+  const g = PICKS[id];
+  const flagList = flags ? flags.split(",").filter(Boolean) : [];
+  const fl = flagList.includes("MMoA") ? flagList.filter(f => f !== "auction" && f !== "buyerfee") : flagList;
+  const street = g && g.street ? g.street : addr.split(",")[0].trim();
+  const rawArea = addr.split(",").slice(1).join(",").replace(/\s+/g, " ").trim();
+  const area = (rawArea.replace(/,?\s*\b[A-Z]{1,2}\d{1,2}[A-Z]?(\s*\d[A-Z]{2})?\s*$/i, "").replace(/,\s*$/, "").trim() || "Nuneaton / Coventry area") + ", " + pc;
+  return { id, lat: g && g.lat || lat, lng: g && g.lng || lng, price, qual, beds, type, addr, pc, garage, gq, gdq, flags: fl, status, agent, img: img ? (/^https?:/.test(img) ? img : "https://media.rightmove.co.uk/property-photo/" + img) : "", leaseYears: r.leaseYears || 0, url: r.url || "", pick: g || null, note: NOTES[id] || "", street, area };
+});
+
+// ---------- Area (town) for the area switcher ----------
+// CV12 = Bedworth & Bulkington; CV7 9.. = Exhall/Ash Green (Bedworth side); CV10/11/13 = Nuneaton, Hartshill, Ansley, Higham;
+// CV7 8.. north of Keresley (Arley, Fillongley) = Nuneaton side; everything else = north Coventry.
+const TOWN_LABEL = { bedworth: "Bedworth area", nuneaton: "Nuneaton area", coventry: "Coventry (north)" };
+function townOf(h) {
+  const [out, sector = ""] = (h.pc || "").toUpperCase().trim().split(/\s+/);
+  if (out === "CV12") return "bedworth";
+  if (out === "CV10" || out === "CV11" || out === "CV13") return "nuneaton";
+  if (out === "CV7") return sector.startsWith("9") ? "bedworth" : h.lat >= 52.48 ? "nuneaton" : "coventry";
+  return "coventry";
+}
+HOUSES.forEach(h => { h.town = townOf(h); });
+
+// ---------- Positives, negatives and verdict for every house ----------
+// Per-house features read from each full listing: [positive tags, negative tags, sq ft, council tax band, bathrooms, last listing update]
+const FEAT = Object.fromEntries(DATA.houses.map(r => [r.id, [r.pos || "", r.neg || "", r.sqft || 0, r.ctax || "", r.baths || 0, r.hist || ""]]));
+const BEDWORTH = [52.4790, -1.4700];
+const miles = (a, b) => { const R = 3958.8, r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r; const x = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); };
+const MAIN_ROADS = /^(\d+\s+)?(walsgrave road|ansty road|coventry road|nuneaton road|longford road|hall green road|old hinckley road|leicester road|bedworth road|coleshill road|foleshill road|holbrook lane|henley road|sewall highway|radford road|bell green road|newtown road|heath end road|whittleford road|tamworth road|exhall road|keresley road|church road|bulkington road|aldermans green road|holyhead road|barkers butts lane|bennetts road|lutterworth road|attleborough road|weddington road|arbury road|hinckley road)\b/i;
+const listJoin = a => a.length <= 1 ? (a[0] || "") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1];
+const SIMILAR = ["chain", "driveway", "parking", "garage", "garden", "lawn", "band a", "reduced", "bathroom", "en-suite", "presented", "renovat", "budget", "sq ft", "road"];
+function assess(h) {
+  const f = FEAT[h.id] || ["", "", 0, "", 0, ""];
+  const P = new Set(f[0].split(",").filter(Boolean)), C = new Set(f[1].split(",").filter(Boolean));
+  const sqft = f[2], ctax = f[3], baths = f[4], hist = f[5];
+  const pros = [], cons = [];
+  const add = (arr, w, text, short) => arr.push({ w, text, short });
+  // garage
+  const gb = h.garage.replace("?", "");
+  if (gb.startsWith("Double")) add(pros, 10, "Double garage", "a double garage");
+  else if (gb === "Detached") add(pros, 6, "Detached garage, separate from the house", "a detached garage");
+  else if (gb === "Integral") add(pros, 4, "Integral garage with access from inside", "an integral garage");
+  else if (gb === "Attached") add(pros, 3, "Garage attached at the side", "a side garage");
+  else if (gb === "Block") add(cons, -8, "Garage is in a separate block, not on the plot", "the garage being in a separate block");
+  else add(cons, -1, "Listing doesn't say where the garage is", "no detail on where the garage is");
+  if (h.garage.endsWith("?")) add(cons, -6, "Garage wording is unclear (may be a store or part-converted), so check it", "unclear garage wording");
+  if (P.has("largegar")) add(pros, 5, "Large garage or workshop", "a large garage");
+  if (P.has("garpower")) add(pros, 1, "Garage has power and light", "power in the garage");
+  if (C.has("limited")) add(cons, -8, "Garage access is limited or it's being used as storage", "limited garage access");
+  // garden
+  if (P.has("biggdn")) add(pros, 12, "Listing describes a large, generous or long garden", "a garden described as large");
+  if (P.has("lawn")) add(pros, 4, "Lawned garden", "a lawn");
+  if (P.has("south")) add(pros, 3, "South-facing garden", "a south-facing garden");
+  if (P.has("corner")) add(pros, 4, "Corner plot, often with extra side garden", "a corner plot");
+  if (P.has("views")) add(pros, 4, "Open outlook or not overlooked", "an open outlook");
+  if (C.has("lowmaint")) add(cons, -10, "Garden described as low-maintenance, paved or artificial, so probably small", "a small, low-maintenance garden");
+  if (!P.has("biggdn") && !P.has("lawn") && !C.has("lowmaint") && !h.pick) add(cons, -3, "Listing says little about the garden; check its size on the aerial view", "little detail on the garden");
+  if (h.pick) add(pros, 22, "Big garden measured from aerial imagery, garage confirmed", "a big garden I measured");
+  // the house
+  if (P.has("nochain")) add(pros, 4, "No onward chain", "no chain");
+  if (P.has("drive2")) add(pros, 4, "Driveway for two or more cars", "parking for 2+ cars");
+  else if (P.has("drive")) add(pros, 2, "Driveway / off-road parking", "a driveway");
+  if (baths >= 2) add(pros, 3, `${baths} bathrooms / shower rooms`, `${baths} bathrooms`);
+  else if (P.has("ensuite")) add(pros, 2, "En-suite to the main bedroom", "an en-suite");
+  if (P.has("ext")) add(pros, 3, "Extended, so more living space", "an extension");
+  if (P.has("cons")) add(pros, 1, "Conservatory or sun room", "a conservatory");
+  if (P.has("modern")) add(pros, 3, "Modern or refitted kitchen/bathroom", "a modern kitchen/bathroom");
+  if (P.has("wellpres")) add(pros, 4, "Well presented, likely ready to move into", "good condition");
+  if (P.has("wc")) add(pros, 1, "Downstairs WC", "a downstairs WC");
+  if (P.has("solar")) add(pros, 1, "Solar panels", "solar panels");
+  if (sqft >= 1000) add(pros, 4, `Spacious: about ${sqft.toLocaleString("en-GB")} sq ft`, `about ${sqft.toLocaleString("en-GB")} sq ft of space`);
+  else if (sqft && sqft < 760) add(cons, -4, `Small for a 3-bed: about ${sqft} sq ft`, "a small house");
+  if (h.beds >= 4) add(pros, 3, `${h.beds} bedrooms`, `${h.beds} bedrooms`);
+  if (C.has("showeronly")) add(cons, -2, "Shower room only, no bath", "no bath");
+  if (C.has("poor")) add(cons, -15, "Needs major renovation", "major renovation needed");
+  else if (C.has("reno")) add(cons, -6, "Needs some updating or modernising", "updating needed");
+  if (h.type === "T") add(cons, -2, "Mid-terrace (neighbours on both sides)", "being mid-terrace");
+  if (ctax === "A") add(pros, 2, "Council tax band A (the cheapest)", "band A council tax");
+  else if (/^[D-H]$/.test(ctax)) add(cons, -2, `Council tax band ${ctax}`, `band ${ctax} council tax`);
+  // money and legal
+  if (h.price <= 190000) add(pros, 5, `Low price (${fmtK(h.price)}), leaving budget for improvements`, "a low price");
+  else if (h.price <= 215000) add(pros, 2, `Comfortably under budget (${fmtK(h.price)})`, "a price well under budget");
+  if (h.price >= 265000) add(cons, -3, "At the top of your budget", "being at the top of your budget");
+  if (/offers over/i.test(h.qual) && h.price >= 255000) add(cons, -6, "“Offers over” close to £270k, so it may go above your budget", "“offers over” pricing near £270k");
+  if (C.has("mmoa")) add(cons, -12, "Modern Method of Auction: non-refundable reservation fee on top and completion within 56 days", "auction terms and fees");
+  else if (C.has("auction")) add(cons, -10, "Auction sale: fast completion and fees", "auction terms");
+  if (C.has("shared")) add(cons, -30, "Shared ownership: the price is for a share, with rent on the rest", "shared ownership");
+  if (C.has("buyerfee")) add(cons, -6, "Agent charges a buyer's fee on top of the price", "a buyer's fee");
+  if (C.has("cash")) add(cons, -15, "Cash buyers only / non-standard construction, so a mortgage may be hard", "cash buyers only");
+  if (h.flags.includes("lease37")) add(cons, -30, "Very short lease (about 37 years left): cash buyers only", "a very short lease");
+  else if (h.flags.includes("shortlease")) add(cons, -25, `Short lease${h.leaseYears ? ` (about ${h.leaseYears} years left)` : ""}: hard to get a mortgage`, "a short lease");
+  else if (C.has("lease")) add(cons, -4, "Leasehold: check lease length, ground rent and service charges", "being leasehold");
+  // how long on the market
+  const m = hist.match(/^([RA])(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (hist.startsWith("R")) add(pros, 2, "Price already reduced" + (m ? ` (on ${m[2]}/${m[3]})` : "") + ", so the seller may negotiate", "a recent price cut");
+  else if (m && new Date(+m[4], +m[3] - 1, +m[2]) < new Date(Date.now() - 92 * 864e5)) add(pros, 1, `On the market since ${m[2]}/${m[3]}/${m[4]}, so there may be room to negotiate`, "room to negotiate");
+  // location
+  const d = miles(BEDWORTH, [h.lat, h.lng]);
+  if (d <= 1.5) add(pros, 3, `About ${d.toFixed(1)} miles from Bedworth town centre`, "being close to Bedworth");
+  else if (d > 4.5) add(cons, -4, `About ${d.toFixed(1)} miles from Bedworth`, "the distance from Bedworth");
+  if (MAIN_ROADS.test(h.street)) add(cons, -3, "On a main road, so check traffic noise", "a main-road position");
+  if (h.status) add(cons, -40, h.status === 1 ? "Already sold subject to contract" : "Already under offer", "already being sold");
+  const score = 50 + pros.reduce((a, p) => a + p.w, 0) + cons.reduce((a, c) => a + c.w, 0);
+  pros.sort((a, b) => b.w - a.w); cons.sort((a, b) => a.w - b.w);
+  let label, cls;
+  if (h.status) { label = h.status === 1 ? "Sold STC: only if the sale falls through" : "Under offer: only if it falls through"; cls = "bad"; }
+  else if (C.has("shared") || C.has("cash") || h.flags.includes("lease37") || h.flags.includes("shortlease")) { label = "Not worth it for you"; cls = "bad"; }
+  else if (h.pick) { label = "Worth a viewing: one I checked closely"; cls = "good"; }
+  else if (score >= 75) { label = "Worth a viewing"; cls = "good"; }
+  else if (score >= 57) { label = "Maybe: check it in person"; cls = "mid"; }
+  else { label = "Probably not worth it"; cls = "bad"; }
+  // summary picks: strongest points, mentioning the garage only once
+  const pick = (arr, n) => { const out = []; let garage = false; for (const x of arr) { const isGar = /garage/.test(x.short); if (isGar && garage) continue; garage = garage || isGar; out.push(x.short); if (out.length === n) break; } return out; };
+  const top = pick(pros, 3), worst = pick(cons, 2);
+  let summary;
+  if (h.pick && !h.status) summary = h.pick.why;
+  else if (h.note) summary = h.note;
+  else if (h.status) summary = `It's ${h.status === 1 ? "sold subject to contract" : "under offer"}, so it's only worth chasing if that sale falls through.` + (top.length ? ` On paper it has ${listJoin(top)}.` : "");
+  else if (cls === "good") summary = `A good match on paper: ${listJoin(top)}.` + (worst.length ? ` Watch out for ${listJoin(worst)}.` : "") + " The garden size comes from the listing text; I haven't measured it, so check it on the aerial view.";
+  else if (cls === "mid") summary = (top.length ? `It has ${listJoin(top)}, but ` : "") + `it doesn't stand out against the best options.` + (worst.length ? ` Main drawback: ${listJoin(worst)}.` : "");
+  else summary = (worst.length ? `Held back by ${listJoin(worst)}.` : "Not a strong match.") + (top.length ? ` Its plus points (${listJoin(top)}) don't make up for that.` : "");
+  return { pros, cons, score, label, cls, summary };
+}
+HOUSES.forEach(h => {
+  h.a = assess(h);
+  if (h.pick) {
+    const g = h.pick, curated = g.pros.concat(g.cons).join(" ").toLowerCase();
+    // my measured garden and confirmed garage notes replace the listing-text versions for these houses
+    const covered = /garden|garage|lawn|plot|outlook|south-facing/i;
+    const extraP = h.a.pros.filter(p => !covered.test(p.text) && !SIMILAR.some(k => p.text.toLowerCase().includes(k) && curated.includes(k)));
+    const extraC = h.a.cons.filter(c => !covered.test(c.text) && !SIMILAR.some(k => c.text.toLowerCase().includes(k) && curated.includes(k)));
+    h.a.prosText = g.pros.concat(extraP.map(p => p.text)).slice(0, 9);
+    h.a.consText = g.cons.concat(g.reno && !/^(none|nothing|little)/i.test(g.reno) ? [g.reno] : []).concat(extraC.map(c => c.text)).slice(0, 7);
+  } else {
+    h.a.prosText = h.a.pros.map(p => p.text);
+    h.a.consText = h.a.cons.map(c => c.text);
+  }
+});
+
+// ---------- When each house was listed ----------
+// "listed" is Rightmove's first-listed date. A few older entries (listedEst) were estimated from the listing number.
+const DAY = 864e5;
+const UPDATED = Date.parse(DATA.updated) || Date.now();
+const UPDATED_TEXT = new Date(UPDATED).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const RAW = Object.fromEntries(DATA.houses.map(r => [r.id, r]));
+HOUSES.forEach(h => {
+  const r = RAW[h.id];
+  h.listed = r.listed ? new Date(r.listed + "T12:00:00").getTime() : UPDATED;
+  h.listedEst = !!r.listedEst;
+  h.isNew = h.listed >= Date.now() - 7 * DAY;
+});
+const listedText = (h, short) => {
+  const d = new Date(h.listed), sameYear = d.getFullYear() === new Date().getFullYear();
+  const txt = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: short && sameYear ? undefined : "numeric" });
+  return (h.listedEst ? "~" : "") + txt + (!short && h.listedEst ? " (estimated)" : "");
+};
+
+// ---------- State & filters ----------
+const state = { area: "", show: "avail", sort: "rec", maxPrice: 270000, garage: "", type: "", verdict: "", text: "" };
+const pinEls = {};
+let selectedId = null;
+const matchGarage = (h, f) => { if (!f) return true; const b = h.garage.replace("?", ""); if (f === "double") return b.startsWith("Double"); if (f === "detached") return b === "Detached" || b === "Double-Detached"; if (f === "integral") return b === "Integral" || b === "Attached"; if (f === "block") return b === "Block"; return true; };
+const matchType = (h, f) => { if (!f) return true; if (f === "TE") return ["T", "E", "M"].includes(h.type); if (f === "D") return ["D", "L"].includes(h.type); return h.type === f; };
+function visible(h, ignoreArea) {
+  if (!ignoreArea && state.area && h.town !== state.area) return false;
+  if (state.show === "avail" && h.status !== 0) return false;
+  if (h.price > state.maxPrice) return false;
+  if (!matchGarage(h, state.garage) || !matchType(h, state.type)) return false;
+  if (state.verdict && !(h.a.cls === "good" || (state.verdict === "mid" && h.a.cls === "mid"))) return false;
+  if (state.text) { const t = state.text.toLowerCase(); if (!(h.addr + " " + h.pc + " " + h.street).toLowerCase().includes(t)) return false; }
+  return true;
+}
+
+// ---------- List ----------
+const VERDICT_SHORT = { good: "Worth a viewing", mid: "Maybe", bad: "Probably not" };
+function rowHTML(h) {
+  const chips = [`<span class="chip">${h.beds} bed ${esc(TYPE[h.type].replace(" house", "").toLowerCase())}</span>`, `<span class="chip">${esc(garageShort(h.garage))}</span>`];
+  if (h.status) chips.push(`<span class="chip bad">${STATUS[h.status]}</span>`);
+  h.flags.forEach(f => FLAG[f] && chips.push(`<span class="chip ${FLAG[f][1]}">${esc(FLAG[f][0].split(":")[0])}</span>`));
+  if (!h.status) chips.unshift(`<span class="chip v-${h.a.cls}">${esc(VERDICT_SHORT[h.a.cls])}</span>`);
+  if (h.isNew && !h.status) chips.unshift(`<span class="chip new">New</span>`);
+  return `<button class="row ${h.status ? "sold" : ""}" type="button" data-id="${h.id}"><span class="p">${fmtK(h.price)}</span><span class="s">${esc(h.street)}</span><span class="m">${esc(h.area)}${h.qual ? " · " + esc(h.qual) : ""} · listed ${esc(listedText(h, true))}<span class="chips">${chips.join("")}</span></span></button>`;
+}
+let restLimit = 80;
+let ORDER = [];
+// Available houses always come before sold STC / under offer ones; ties fall back to the recommendation score.
+const SORTS = {
+  rec: ["Best match first", (a, b) => b.a.score - a.a.score || a.price - b.price],
+  price: ["Cheapest first", (a, b) => a.price - b.price || b.a.score - a.a.score],
+  priceDesc: ["Most expensive first", (a, b) => b.price - a.price || b.a.score - a.a.score],
+  newest: ["Newest listed first", (a, b) => b.listed - a.listed || b.a.score - a.a.score]
+};
+const SORT_NOTE = {
+  rec: "<b>Recommended</b> scores every house on its garage, garden, condition, price and distance from Bedworth, and pushes catches (auction terms, shared ownership, major renovation, “offers over” near £270k) down. Houses whose garden I measured from aerial imagery get a boost.",
+  price: "Cheapest asking price first.",
+  priceDesc: "Highest asking price first.",
+  newest: "Newest listings first. Dates with a <b>~</b> are estimated from the Rightmove listing number, because the listing only showed a “reduced on” date. <b>New</b> = listed in the last 7 days."
+};
+function renderList() {
+  const vis = HOUSES.filter(h => visible(h));
+  const [sortTitle, cmp] = SORTS[state.sort];
+  const rows = vis.sort((a, b) => (a.status > 0) - (b.status > 0) || cmp(a, b));
+  ORDER = rows.map(h => h.id);
+  const avail = HOUSES.filter(h => h.status === 0).length, sold = HOUSES.length - avail;
+  const fresh = HOUSES.filter(h => h.status === 0 && h.isNew).length;
+  document.getElementById("subtitle").textContent = `${avail} available + ${sold} sold STC/under offer with a garage · ${fresh} new this week · asking ≤ £270,000 · updated ${UPDATED_TEXT}`;
+  document.getElementById("counts").textContent = `Showing ${vis.length} on the map${state.area ? " · " + TOWN_LABEL[state.area] : ""}`;
+  // counts on the area buttons follow the other filters
+  const base = HOUSES.filter(h => visible(h, true));
+  document.querySelectorAll(".areaseg button").forEach(b => {
+    const a = b.dataset.area, n = a ? base.filter(h => h.town === a).length : base.length;
+    b.innerHTML = `${{ "": "All areas", bedworth: "Bedworth", nuneaton: "Nuneaton", coventry: "Coventry" }[a]}<span class="n">${n}</span>`;
+  });
+  const list = document.getElementById("list");
+  list.innerHTML = `
+    ${DATA.lastRun && DATA.lastRun.ok === false ? `<p class="warnbar">The last automatic check didn't finish (${esc(DATA.lastRun.message)}). These are the listings from ${esc(UPDATED_TEXT)}; it will try again at the next check.</p>` : ""}
+    <p class="note">${SORT_NOTE[state.sort]}</p>
+    <div class="legend"><span><i style="background:var(--lawn)"></i>Worth a viewing</span><span><i style="background:var(--pin);border:2px solid var(--pin-ink)"></i>Other available</span><span><i style="background:var(--chip);border:2px solid var(--grey)"></i>Sold STC / under offer</span></div>
+    <div class="section-h"><h2>${sortTitle}</h2><span>${rows.length}</span></div>
+    ${rows.slice(0, restLimit).map(rowHTML).join("")}
+    ${rows.length > restLimit ? `<button class="btn more" type="button" id="moreBtn">Show ${Math.min(80, rows.length - restLimit)} more</button>` : ""}
+    <p class="note" style="margin-top:8px">Checked on Rightmove automatically twice a day: every 3+ bed house ≤ £270k within 5 miles of Bedworth that has a garage, trimmed to Bedworth, Nuneaton, Hartshill/Ansley, Bulkington, Exhall/Ash Green/Keresley and north Coventry. Converted garages, “space for a garage” and rented garages are left out. Houses only listed on Zoopla or OnTheMarket aren't picked up automatically.</p>`;
+  list.querySelectorAll("[data-id]").forEach(b => b.addEventListener("click", () => select(+b.dataset.id, true)));
+  const more = document.getElementById("moreBtn");
+  if (more) more.addEventListener("click", () => { restLimit += 80; renderList(); });
+  Object.entries(pinEls).forEach(([id, el]) => { el.hidden = !visible(HOUSES.find(h => h.id === +id)) && +id !== selectedId; });
+  markActive();
+  if (selectedId) updatePos();
+}
+function markActive() {
+  document.querySelectorAll("#list [data-id]").forEach(b => b.classList.toggle("active", +b.dataset.id === selectedId));
+  Object.entries(pinEls).forEach(([k, el]) => el.classList.toggle("active", +k === selectedId));
+}
+// make sure the selected house's row exists in the list, then scroll it into view without moving the rest
+function revealRow(id) {
+  const idx = ORDER.indexOf(id);
+  if (idx >= restLimit) { restLimit = Math.ceil((idx + 1) / 80) * 80; renderList(); }
+  const row = document.querySelector(`#list [data-id="${id}"]`);
+  if (row) row.scrollIntoView({ block: "nearest" });
+}
+
+// ---------- Detail ----------
+function detailHTML(h) {
+  const gm = `https://www.google.com/maps/search/?api=1&query=${h.lat},${h.lng}`;
+  const sat = `https://www.google.com/maps/@${h.lat},${h.lng},90m/data=!3m1!1e3`;
+  const sv = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${h.lat},${h.lng}`;
+  const g = h.pick;
+  const links = g ? g.links : [[h.url ? "View listing" : "Rightmove", h.url || RM(h.id)]];
+  const flags = h.flags.map(f => FLAG[f] ? `<span class="chip ${FLAG[f][1]}">${esc(FLAG[f][0])}</span>` : "").join("");
+  return `
+    <div class="detail-head">
+      <button class="btn" type="button" id="prevBtn" aria-label="Previous house">↑ Prev</button>
+      <button class="btn" type="button" id="nextBtn" aria-label="Next house">Next ↓</button>
+      <span class="pos" id="pos"></span>
+      <span class="chip ${h.status ? "bad" : "v-" + h.a.cls}">${h.status ? STATUS[h.status] : VERDICT_SHORT[h.a.cls]}</span>
+      <button class="btn" type="button" id="closeBtn" aria-label="Close details">✕</button>
+    </div>
+    <div class="detail-body">
+      <p class="kbd-hint">Tip: use the ↑ and ↓ arrow keys to flick through the list.</p>
+      ${h.img ? `<div class="photo"><img src="${esc(h.img)}" alt="Listing photo of ${esc(h.street)}" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"></div>` : ""}
+      <div>
+        <div class="d-price"><strong>${fmt(h.price)}</strong><span>${esc(h.qual || "Asking price")}</span></div>
+        <h2 class="d-title">${esc(h.street)}</h2>
+        <p class="d-sub">${esc(h.area)}</p>
+      </div>
+      <div class="links">${links.map((l, i) => `<a class="${i === 0 ? "main" : ""}" href="${esc(l[1])}" target="_blank" rel="noopener">${esc(l[0])} ↗</a>`).join("")}</div>
+      <div class="block verdict ${h.a.cls}"><h3>Overall verdict</h3><p class="vlabel">${esc(h.a.label)}</p><p>${esc(h.a.summary)}</p></div>
+      <div class="pc">
+        <div class="block"><h3>Positives</h3>${h.a.prosText.length ? `<ul class="pl pros">${h.a.prosText.map(p => `<li>${esc(p)}</li>`).join("")}</ul>` : `<p class="small">Nothing stands out in the listing.</p>`}</div>
+        <div class="block"><h3>Negatives</h3>${h.a.consText.length ? `<ul class="pl cons">${h.a.consText.map(p => `<li>${esc(p)}</li>`).join("")}</ul>` : `<p class="small">No obvious drawbacks in the listing.</p>`}</div>
+      </div>
+      ${flags ? `<div class="chips">${flags}</div>` : ""}
+      <div class="facts">
+        <div class="fact"><b>Area</b><span>${esc(TOWN_LABEL[h.town])}</span></div>
+        <div class="fact"><b>Type</b><span>${esc(TYPE[h.type])}</span></div>
+        <div class="fact"><b>Bedrooms</b><span>${h.beds}</span></div>
+        <div class="fact"><b>Status</b><span>${STATUS[h.status]}</span></div>
+        <div class="fact"><b>Listed</b><span>${esc(listedText(h))}</span></div>
+      </div>
+      <div class="block"><h3>Garage <span class="conf ${h.garage.endsWith("?") ? "est" : "ok"}">${h.garage.endsWith("?") ? "Wording unclear, check" : "Mentioned in listing"}</span></h3>
+        <p>${esc(g ? g.garage : garageText(h.garage))}</p>${!g && h.gq ? `<p class="quote small">Listing: “${esc(h.gq)}”</p>` : ""}</div>
+      <div class="block garden"><h3>Garden <span class="conf est">${g ? "My aerial measurement (estimate)" : "Listing text only, not measured"}</span></h3>
+        <p>${g ? esc(g.garden) : h.gdq ? `<span class="quote">“${esc(h.gdq)}”</span>` : "The listing doesn't describe the garden. Use the aerial view link below to judge it."}</p></div>
+      ${h.agent ? `<p class="small">Agent: ${esc(h.agent)}</p>` : ""}
+      <div class="links"><a href="${gm}" target="_blank" rel="noopener">Open in Google Maps ↗</a><a href="${sat}" target="_blank" rel="noopener">Aerial view ↗</a><a href="${sv}" target="_blank" rel="noopener">Street View ↗</a></div>
+    </div>`;
+}
+function updatePos() {
+  const idx = ORDER.indexOf(selectedId);
+  const pos = document.getElementById("pos");
+  if (pos) pos.textContent = idx >= 0 ? `${idx + 1} of ${ORDER.length}` : "Not in current filter";
+  const prev = document.getElementById("prevBtn"), next = document.getElementById("nextBtn");
+  if (prev) prev.disabled = idx <= 0;
+  if (next) next.disabled = idx >= ORDER.length - 1;
+}
+function select(id, pan) {
+  const h = HOUSES.find(x => x.id === id);
+  if (!h) return;
+  const wasOpen = !!selectedId;
+  selectedId = id;
+  const d = document.getElementById("detail");
+  d.innerHTML = detailHTML(h);
+  d.hidden = false; d.scrollTop = 0;
+  document.getElementById("closeBtn").addEventListener("click", closeDetail);
+  document.getElementById("prevBtn").addEventListener("click", () => step(-1));
+  document.getElementById("nextBtn").addEventListener("click", () => step(1));
+  document.querySelector(".app").classList.add("has-detail");
+  if (pinEls[id]) pinEls[id].hidden = false;
+  markActive();
+  updatePos();
+  revealRow(id);
+  // the map column narrows when the details column first opens, so resize before panning
+  MAP.resize(wasOpen ? 0 : 60, () => { if (pan) MAP.panTo(h.lat, h.lng, 15); });
+}
+function step(dir) {
+  if (!ORDER.length) return;
+  const idx = ORDER.indexOf(selectedId);
+  const next = idx < 0 ? ORDER[0] : ORDER[idx + dir];
+  if (next) select(next, true);
+}
+function closeDetail() {
+  const id = selectedId;
+  document.getElementById("detail").hidden = true;
+  document.querySelector(".app").classList.remove("has-detail");
+  selectedId = null;
+  markActive();
+  MAP.resize(60, () => {});
+  const row = document.querySelector(`#list [data-id="${id}"]`);
+  if (row) row.focus({ preventScroll: true });
+}
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { if (!document.getElementById("keyDlg").hidden) closeKeyDlg(); else if (selectedId) closeDetail(); return; }
+  if (!selectedId || e.target.closest("input, select, textarea, #map, .overlay")) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); step(1); }
+  else if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
+});
+
+const HOUSE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3 2 11h3v9h6v-6h2v6h6v-9h3L12 3Zm0 2.6 5 4V18h-2v-6H9v6H7V9.6l5-4Z"/></svg>';
+function pinEl(h) {
+  const b = document.createElement("button");
+  b.type = "button";
+  const good = !h.status && h.a.cls === "good";
+  b.className = "pin" + (h.status ? " sold" : good ? " good" : "");
+  b.innerHTML = HOUSE_SVG + "<span>" + fmtK(h.price) + "</span>";
+  b.setAttribute("aria-label", `${h.street}, ${fmt(h.price)}${good ? ", worth a viewing" : ""}${h.status ? ", " + STATUS[h.status] : ""}`);
+  b.addEventListener("click", e => { e.stopPropagation(); select(h.id, false); });
+  pinEls[h.id] = b;
+  return b;
+}
+
+// ---------- Map engines ----------
+const MAP = { panTo() {}, fit() {}, resize(delay, cb) { setTimeout(cb, delay); } };
+const CENTER = [52.478, -1.495];
+const LOW_ZOOM = 14;
+function setZoomClass(z) { document.getElementById("map").classList.toggle("z-low", z < LOW_ZOOM); }
+
+function startLeaflet(reason) {
+  document.getElementById("modeLabel").textContent = "Map: street map";
+  document.getElementById("gBtn").textContent = "Use Google Maps";
+  if (reason) { const n = document.getElementById("mapNote"); n.textContent = reason; n.hidden = false; }
+  const m = L.map("map", { zoomControl: true }).setView(CENTER, 12);
+  const streets = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors" }).addTo(m);
+  const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" });
+  const aerial = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 20, maxNativeZoom: 19, attribution: "Imagery &copy; Esri" });
+  L.control.layers({ "Streets": streets, "OpenStreetMap": osm, "Aerial (check gardens)": aerial }, null, { position: "topright" }).addTo(m);
+  HOUSES.forEach(h => {
+    const icon = L.divIcon({ className: "pin-host", html: "", iconSize: [0, 0] });
+    const mk = L.marker([h.lat, h.lng], { icon, keyboard: false, zIndexOffset: h.status ? -500 : h.a.cls === "good" ? 1000 : 0 }).addTo(m);
+    mk.getElement().appendChild(pinEl(h));
+  });
+  m.fitBounds(HOUSES.filter(h => h.status === 0).map(h => [h.lat, h.lng]), { padding: [30, 30] });
+  setZoomClass(m.getZoom());
+  m.on("zoomend", () => setZoomClass(m.getZoom()));
+  m.on("click", () => { if (selectedId) closeDetail(); });
+  MAP.panTo = (lat, lng, z) => m.setView([lat, lng], Math.max(m.getZoom(), z || 0));
+  MAP.resize = (delay, cb) => setTimeout(() => { m.invalidateSize({ pan: false }); cb(); }, delay);
+  MAP.fit = pts => { if (pts.length) m.fitBounds(pts, { padding: [30, 30], maxZoom: 15 }); };
+  renderList();
+}
+
+function startGoogle(key) {
+  window.gm_authFailure = () => { document.getElementById("map").innerHTML = ""; startLeaflet("Google rejected the API key, so this is the free street map instead. Check the key and that Maps JavaScript API is enabled."); };
+  window.__initGoogle = () => {
+    document.getElementById("modeLabel").textContent = "Map: Google Maps";
+    document.getElementById("gBtn").textContent = "Change Google key";
+    const map = new google.maps.Map(document.getElementById("map"), { center: { lat: CENTER[0], lng: CENTER[1] }, zoom: 12, mapTypeControl: true, streetViewControl: true, fullscreenControl: false, clickableIcons: false });
+    class PricePin extends google.maps.OverlayView {
+      constructor(h) { super(); this.h = h; this.el = pinEl(h); google.maps.OverlayView.preventMapHitsAndGesturesFrom(this.el); }
+      onAdd() { this.getPanes().overlayMouseTarget.appendChild(this.el); }
+      draw() { const p = this.getProjection().fromLatLngToDivPixel(new google.maps.LatLng(this.h.lat, this.h.lng)); this.el.style.left = p.x + "px"; this.el.style.top = p.y + "px"; }
+      onRemove() { this.el.remove(); }
+    }
+    const bounds = new google.maps.LatLngBounds();
+    HOUSES.forEach(h => { new PricePin(h).setMap(map); if (h.status === 0) bounds.extend({ lat: h.lat, lng: h.lng }); });
+    map.fitBounds(bounds, 30);
+    map.addListener("zoom_changed", () => setZoomClass(map.getZoom()));
+    map.addListener("click", () => { if (selectedId) closeDetail(); });
+    MAP.panTo = (lat, lng, z) => { map.panTo({ lat, lng }); if (z && map.getZoom() < z) map.setZoom(z); };
+    MAP.fit = pts => { if (!pts.length) return; const b = new google.maps.LatLngBounds(); pts.forEach(p => b.extend({ lat: p[0], lng: p[1] })); map.fitBounds(b, 30); };
+    renderList();
+  };
+  const s = document.createElement("script");
+  s.src = "https://maps.googleapis.com/maps/api/js?key=" + encodeURIComponent(key) + "&callback=__initGoogle&v=weekly";
+  s.async = true;
+  s.onerror = () => startLeaflet("Google Maps could not load (offline or blocked), so this is the free street map instead.");
+  document.head.appendChild(s);
+}
+
+// ---------- Controls ----------
+function setShow(v) { state.show = v; restLimit = 80; [["showAvail", "avail"], ["showAll", "all"]].forEach(([id, val]) => document.getElementById(id).setAttribute("aria-pressed", String(val === v))); renderList(); }
+document.querySelectorAll("[data-sort]").forEach(b => b.addEventListener("click", () => {
+  state.sort = b.dataset.sort; restLimit = 80;
+  document.querySelectorAll("[data-sort]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  document.getElementById("list").scrollTop = 0;
+  renderList();
+}));
+document.getElementById("showAvail").addEventListener("click", () => setShow("avail"));
+document.getElementById("showAll").addEventListener("click", () => setShow("all"));
+document.getElementById("fPrice").addEventListener("change", e => { state.maxPrice = +e.target.value; restLimit = 80; renderList(); });
+document.getElementById("fGarage").addEventListener("change", e => { state.garage = e.target.value; restLimit = 80; renderList(); });
+document.getElementById("fType").addEventListener("change", e => { state.type = e.target.value; restLimit = 80; renderList(); });
+document.getElementById("fVerdict").addEventListener("change", e => { state.verdict = e.target.value; restLimit = 80; renderList(); });
+document.querySelectorAll(".areaseg button").forEach(b => b.addEventListener("click", () => {
+  state.area = b.dataset.area; restLimit = 80;
+  document.querySelectorAll(".areaseg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  document.getElementById("list").scrollTop = 0;
+  renderList();
+  // zoom the map to the chosen area's houses
+  const shown = HOUSES.filter(h => visible(h));
+  const pts = (state.area ? shown : shown.filter(h => h.status === 0)).map(h => [h.lat, h.lng]);
+  MAP.fit(pts.length ? pts : HOUSES.filter(h => !state.area || h.town === state.area).map(h => [h.lat, h.lng]));
+}));
+document.getElementById("fText").addEventListener("input", e => { state.text = e.target.value.trim(); restLimit = 80; renderList(); });
+
+function getKey() { if (GOOGLE_MAPS_API_KEY) return GOOGLE_MAPS_API_KEY; try { return localStorage.getItem("gmapsKey") || ""; } catch (e) { return ""; } }
+function openKeyDlg() { document.getElementById("keyDlg").hidden = false; const i = document.getElementById("gkey"); i.value = getKey(); i.focus(); }
+function closeKeyDlg() { document.getElementById("keyDlg").hidden = true; document.getElementById("gBtn").focus(); }
+document.getElementById("gBtn").addEventListener("click", openKeyDlg);
+document.getElementById("keyCancel").addEventListener("click", closeKeyDlg);
+document.getElementById("keySave").addEventListener("click", () => { const v = document.getElementById("gkey").value.trim(); if (!v) { document.getElementById("gkey").focus(); return; } try { localStorage.setItem("gmapsKey", v); } catch (e) {} location.reload(); });
+document.getElementById("keyRemove").addEventListener("click", () => { try { localStorage.removeItem("gmapsKey"); } catch (e) {} location.reload(); });
+
+// ---------- KML export for Google My Maps (exports what's currently shown) ----------
+function buildKML() {
+  const styles = `<Style id="good"><IconStyle><scale>1.1</scale><Icon><href>https://maps.google.com/mapfiles/kml/paddle/grn-blank.png</href></Icon></IconStyle></Style><Style id="avail"><IconStyle><scale>0.9</scale><Icon><href>https://maps.google.com/mapfiles/kml/shapes/homegardenbusiness.png</href></Icon></IconStyle></Style><Style id="sold"><IconStyle><color>ff999999</color><scale>0.7</scale><Icon><href>https://maps.google.com/mapfiles/kml/shapes/homegardenbusiness.png</href></Icon></IconStyle></Style>`;
+  const pms = HOUSES.filter(h => visible(h)).map(h => {
+    const g = h.pick;
+    const desc = `<b>${esc(h.street)}</b>, ${esc(h.area)}<br>${fmt(h.price)}${h.qual ? " (" + esc(h.qual) + ")" : ""} · ${h.beds} bed ${esc(TYPE[h.type])} · ${STATUS[h.status]}<br><b>Garage:</b> ${esc(g ? g.garage : garageText(h.garage))}<br><b>Garden:</b> ${esc(g ? g.garden : (h.gdq || "not described"))}<br><b>Verdict:</b> ${esc(h.a.label)} · listed ${esc(listedText(h, true))}${g ? "<br><b>My notes:</b> " + esc(g.why) : h.note ? "<br><b>My notes:</b> " + esc(h.note) : ""}<br><a href="${RM(h.id)}">Rightmove listing</a>`;
+    return `<Placemark><name>${fmtK(h.price)}</name><styleUrl>#${h.status ? "sold" : h.a.cls === "good" ? "good" : "avail"}</styleUrl><description><![CDATA[${desc}]]></description><Point><coordinates>${h.lng},${h.lat},0</coordinates></Point></Placemark>`;
+  }).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Bedworth House Shortlist</name>${styles}\n${pms}\n</Document></kml>`;
+}
+document.getElementById("kmlBtn").addEventListener("click", () => {
+  const url = URL.createObjectURL(new Blob([buildKML()], { type: "application/vnd.google-earth.kml+xml" }));
+  const a = document.createElement("a"); a.href = url; a.download = "bedworth-house-shortlist.kml";
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+});
+
+const key = getKey();
+if (key) startGoogle(key);
+else if (window.L) startLeaflet();
+else { renderList(); document.getElementById("map").textContent = "The map couldn't load. Check your connection and refresh the page."; }
+}
+
+// Load the latest listings (updated automatically by update.mjs), then build the page.
+fetch("listings.json", { cache: "no-cache" })
+  .then(r => { if (!r.ok) throw new Error("the server said " + r.status); return r.json(); })
+  .then(data => {
+    try { main(data); }
+    catch (err) { console.error(err); showProblem("Something went wrong showing the listings (" + err.message + ")."); }
+  }, err => showProblem("Couldn't load the listings (" + err.message + "). Refresh the page to try again."));
+function showProblem(text) {
+  const p = document.createElement("p");
+  p.className = "note";
+  p.textContent = text;
+  document.getElementById("list").replaceChildren(p);
+}
+</script>
+</body>
+</html>
