@@ -83,7 +83,16 @@ aside.panel { position: relative; overflow: hidden; border-right: 1px solid var(
 .areaseg { background: var(--bg); }
 .areaseg button { padding: 7px 14px; font-size: .9rem; }
 .areaseg button .n { font-weight: 400; opacity: .7; margin-left: 4px; font-variant-numeric: tabular-nums; }
-@media (max-width: 820px) { .areaseg { order: 3; width: 100%; } .areaseg button { padding: 7px 6px; font-size: .84rem; } }
+.viewseg { background: var(--bg); }
+.viewseg button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 14px; font-size: .9rem; }
+.viewseg button svg { width: 15px; height: 15px; flex: none; }
+.viewseg button .n { font-weight: 400; opacity: .7; font-variant-numeric: tabular-nums; }
+.viewseg [data-view="saved"] svg { color: var(--brick); }
+.viewseg [data-view="booked"] svg { color: var(--gold); }
+.viewseg button[aria-pressed="true"] svg { color: inherit; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.brand { flex: 1 1 260px; }
+@media (max-width: 820px) { .tabs { order: 3; width: 100%; } .areaseg, .viewseg { width: 100%; } .areaseg button, .viewseg button { padding: 7px 6px; font-size: .84rem; } .areaseg button { white-space: normal; line-height: 1.15; } .areaseg button .n { display: block; margin-left: 0; } }
 .frow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .frow select, .search { width: 100%; padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: .84rem; }
 .sortrow { display: flex; align-items: center; gap: 8px; font-size: .8rem; font-weight: 600; color: var(--muted); }
@@ -113,6 +122,21 @@ aside.panel { position: relative; overflow: hidden; border-right: 1px solid var(
 .chip.warn { background: var(--amber-soft); color: var(--amber); }
 .chip.bad { background: var(--brick-soft); color: var(--brick); }
 .chip.new { background: var(--ink); color: var(--surface); }
+.chip.saved { background: var(--brick-soft); color: var(--brick); }
+.chip.booked { background: var(--gold-soft); color: var(--gold-ink); }
+:root[data-theme="dark"] .chip.booked { color: var(--gold); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chip.booked { color: var(--gold); } }
+.mine { display: flex; flex-wrap: wrap; gap: 6px; }
+.mine .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; }
+.mine .btn svg { width: 16px; height: 16px; flex: none; }
+.mine .btn.on-saved { background: var(--brick-soft); border-color: var(--brick); color: var(--brick); }
+.mine .btn.on-booked { background: var(--gold-soft); border-color: var(--gold); }
+.bookbox { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--gold); background: var(--gold-soft); border-radius: 10px; padding: 10px 12px; }
+.bookbox label { font-size: .8rem; font-weight: 700; color: var(--muted); }
+.bookbox input { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.bookbox .row2 { display: flex; gap: 8px; flex-wrap: wrap; }
+.bookbox p { margin: 0; font-weight: 600; }
+.empty { border: 1px dashed var(--line); border-radius: 10px; padding: 16px; color: var(--muted); font-size: .9rem; text-align: center; }
 .more { align-self: center; }
 
 #map { width: 100%; height: 100%; min-height: 300px; background: var(--chip); }
@@ -126,14 +150,16 @@ aside.panel { position: relative; overflow: hidden; border-right: 1px solid var(
 .pin svg { width: 14px; height: 14px; flex: none; }
 .pin.good { background: var(--lawn); border-color: var(--lawn); color: var(--surface); z-index: 5; }
 .pin.good::after { border-top-color: var(--lawn); }
+.pin.mine { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--brick), var(--shadow); z-index: 8; }
+.pin.mine.is-booked { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--gold), var(--shadow); }
 .pin.sold { background: var(--chip); color: var(--muted); border-color: var(--grey); font-weight: 600; }
 .pin.sold::after { border-top-color: var(--grey); }
 .pin.active { transform: translate(-50%, calc(-100% - 6px)) scale(1.18); z-index: 20; outline: 3px solid var(--surface); }
 .pin:hover { z-index: 15; }
 /* zoomed out: pins become dots (green = worth a viewing) so the map stays readable */
-.z-low .pin:not(.active) { width: 12px; height: 12px; padding: 0; border-width: 2px; transform: translate(-50%, -50%); gap: 0; }
-.z-low .pin:not(.active) > * { display: none; }
-.z-low .pin:not(.active)::after { display: none; }
+.z-low .pin:not(.active):not(.mine) { width: 12px; height: 12px; padding: 0; border-width: 2px; transform: translate(-50%, -50%); gap: 0; }
+.z-low .pin:not(.active):not(.mine) > * { display: none; }
+.z-low .pin:not(.active):not(.mine)::after { display: none; }
 .z-low .pin.sold:not(.active) { width: 8px; height: 8px; }
 
 /* Detail sheet */
@@ -216,11 +242,17 @@ ul.pl li { margin: 2px 0; }
       <h1>Bedworth House Shortlist</h1>
       <p id="subtitle">Every 3+ bed house with a garage, asking ≤ £270,000 · loading listings…</p>
     </div>
+    <div class="tabs">
     <div class="seg areaseg" role="group" aria-label="Area">
       <button type="button" data-area="" aria-pressed="true">All areas</button>
       <button type="button" data-area="bedworth" aria-pressed="false">Bedworth</button>
       <button type="button" data-area="nuneaton" aria-pressed="false">Nuneaton</button>
       <button type="button" data-area="coventry" aria-pressed="false">Coventry</button>
+    </div>
+    <div class="seg viewseg" role="group" aria-label="Your lists">
+      <button type="button" data-view="saved" aria-pressed="false">Saved</button>
+      <button type="button" data-view="booked" aria-pressed="false">Booked</button>
+    </div>
     </div>
     <div class="mapmode">
       <span id="modeLabel">Map: street map</span>
@@ -368,10 +400,10 @@ const garageShort = g => { const b = g.replace("?", ""); return ({ "Double-Detac
 const fmtK = n => "£" + Math.round(n / 1000) + "k";
 const fmt = n => "£" + n.toLocaleString("en-GB");
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const STATUS = ["Available", "Sold STC", "Under offer"];
+const STATUS = ["Available", "Sold STC", "Under offer", "Off the market"];
 
-// status 3 = no longer on Rightmove: kept in listings.json for history, never shown
-const HOUSES = DATA.houses.filter(r => r.status !== 3).map(r => {
+// status 3 = no longer on Rightmove: only shown in your Saved / Booked lists
+const HOUSES = DATA.houses.map(r => {
   const { id, lat, lng, price, qual, beds, addr, pc, garage, gq, gdq, flags, status, agent, img } = r;
   const type = TYPE[r.type] ? r.type : "H";
   const g = PICKS[id];
@@ -474,11 +506,11 @@ function assess(h) {
   if (d <= 1.5) add(pros, 3, `About ${d.toFixed(1)} miles from Bedworth town centre`, "being close to Bedworth");
   else if (d > 4.5) add(cons, -4, `About ${d.toFixed(1)} miles from Bedworth`, "the distance from Bedworth");
   if (MAIN_ROADS.test(h.street)) add(cons, -3, "On a main road, so check traffic noise", "a main-road position");
-  if (h.status) add(cons, -40, h.status === 1 ? "Already sold subject to contract" : "Already under offer", "already being sold");
+  if (h.status) add(cons, -40, ["", "Already sold subject to contract", "Already under offer", "No longer listed on Rightmove"][h.status], "already being sold");
   const score = 50 + pros.reduce((a, p) => a + p.w, 0) + cons.reduce((a, c) => a + c.w, 0);
   pros.sort((a, b) => b.w - a.w); cons.sort((a, b) => a.w - b.w);
   let label, cls;
-  if (h.status) { label = h.status === 1 ? "Sold STC: only if the sale falls through" : "Under offer: only if it falls through"; cls = "bad"; }
+  if (h.status) { label = ["", "Sold STC: only if the sale falls through", "Under offer: only if it falls through", "Off the market"][h.status]; cls = "bad"; }
   else if (C.has("shared") || C.has("cash") || h.flags.includes("lease37") || h.flags.includes("shortlease")) { label = "Not worth it for you"; cls = "bad"; }
   else if (h.pick) { label = "Worth a viewing: one I checked closely"; cls = "good"; }
   else if (score >= 75) { label = "Worth a viewing"; cls = "good"; }
@@ -490,6 +522,7 @@ function assess(h) {
   let summary;
   if (h.pick && !h.status) summary = h.pick.why;
   else if (h.note) summary = h.note;
+  else if (h.status === 3) summary = "This house has been taken off Rightmove, so it's either sold or the seller has withdrawn it.";
   else if (h.status) summary = `It's ${h.status === 1 ? "sold subject to contract" : "under offer"}, so it's only worth chasing if that sale falls through.` + (top.length ? ` On paper it has ${listJoin(top)}.` : "");
   else if (cls === "good") summary = `A good match on paper: ${listJoin(top)}.` + (worst.length ? ` Watch out for ${listJoin(worst)}.` : "") + " The garden size comes from the listing text; I haven't measured it, so check it on the aerial view.";
   else if (cls === "mid") summary = (top.length ? `It has ${listJoin(top)}, but ` : "") + `it doesn't stand out against the best options.` + (worst.length ? ` Main drawback: ${listJoin(worst)}.` : "");
@@ -530,13 +563,50 @@ const listedText = (h, short) => {
   return (h.listedEst ? "~" : "") + txt + (!short && h.listedEst ? " (estimated)" : "");
 };
 
+// ---------- Saved and booked houses (kept in this browser) ----------
+const MARKS_KEY = "houseMap.marks.v1";
+let MARKS = {};
+try { MARKS = JSON.parse(localStorage.getItem(MARKS_KEY) || "{}") || {}; } catch (e) { MARKS = {}; }
+const markOf = id => MARKS[id] || {};
+const isSaved = h => !!markOf(h.id).saved;
+const isBooked = h => !!markOf(h.id).booked;
+function setMark(id, patch) {
+  const m = { ...markOf(id), ...patch };
+  if (!m.saved && !m.booked) delete MARKS[id]; else MARKS[id] = m;
+  try { localStorage.setItem(MARKS_KEY, JSON.stringify(MARKS)); } catch (e) {}
+  const h = HOUSES.find(x => x.id === id);
+  if (h) pinMarks(h);
+  renderList();
+  if (selectedId === id && h) renderDetail(h, true);
+}
+const bookedAt = h => { const w = markOf(h.id).when; return w ? new Date(w).getTime() : NaN; };
+const bookedText = (h, short) => {
+  const t = bookedAt(h);
+  if (isNaN(t)) return "Viewing booked";
+  const d = new Date(t), past = t < Date.now() - 3 * 36e5;
+  const day = d.toLocaleDateString("en-GB", short ? { weekday: "short", day: "numeric", month: "short" } : { weekday: "long", day: "numeric", month: "long" });
+  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  return (short ? "Viewing " : "Viewing booked: ") + day + ", " + time + (past ? " (past)" : "");
+};
+const HEART_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.1 0 3.6 1.1 4.3 2.4h2c.7-1.3 2.2-2.4 4.3-2.4 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21Z"/></svg>';
+const HEART_LINE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M12 19.6s-6.6-4.1-8.4-8.1C2.4 8.8 4.1 5.6 7 5.6c1.9 0 3.2 1.2 3.8 2.4h2.4c.6-1.2 1.9-2.4 3.8-2.4 2.9 0 4.6 3.2 3.4 5.9-1.8 4-8.4 8.1-8.4 8.1Z"/></svg>';
+const CAL_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 2h2v2h6V2h2v2h3a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3V2Zm12 8H5v9h14v-9ZM5 8h14V6H5v2Zm2 4h4v4H7v-4Z"/></svg>';
+
 // ---------- State & filters ----------
-const state = { area: "", show: "avail", sort: "rec", maxPrice: 270000, garage: "", type: "", verdict: "", text: "" };
+const state = { view: "all", area: "", show: "avail", sort: "rec", maxPrice: 270000, garage: "", type: "", verdict: "", text: "" };
 const pinEls = {};
 let selectedId = null;
 const matchGarage = (h, f) => { if (!f) return true; const b = h.garage.replace("?", ""); if (f === "double") return b.startsWith("Double"); if (f === "detached") return b === "Detached" || b === "Double-Detached"; if (f === "integral") return b === "Integral" || b === "Attached"; if (f === "block") return b === "Block"; return true; };
 const matchType = (h, f) => { if (!f) return true; if (f === "TE") return ["T", "E", "M"].includes(h.type); if (f === "D") return ["D", "L"].includes(h.type); return h.type === f; };
+// Saved / Booked show everything on that list (only the search box applies); the main view uses all the filters.
+const textMatch = h => { if (!state.text) return true; const t = state.text.toLowerCase(); return (h.addr + " " + h.pc + " " + h.street).toLowerCase().includes(t); };
 function visible(h, ignoreArea) {
+  if (state.view === "saved") return isSaved(h) && textMatch(h);
+  if (state.view === "booked") return isBooked(h) && textMatch(h);
+  return matchesFilters(h, ignoreArea);
+}
+function matchesFilters(h, ignoreArea) {
+  if (h.status === 3) return false;
   if (!ignoreArea && state.area && h.town !== state.area) return false;
   if (state.show === "avail" && h.status !== 0) return false;
   if (h.price > state.maxPrice) return false;
@@ -554,6 +624,8 @@ function rowHTML(h) {
   h.flags.forEach(f => FLAG[f] && chips.push(`<span class="chip ${FLAG[f][1]}">${esc(FLAG[f][0].split(":")[0])}</span>`));
   if (!h.status) chips.unshift(`<span class="chip v-${h.a.cls}">${esc(VERDICT_SHORT[h.a.cls])}</span>`);
   if (h.isNew && !h.status) chips.unshift(`<span class="chip new">New</span>`);
+  if (isBooked(h)) chips.unshift(`<span class="chip booked">${esc(bookedText(h, true))}</span>`);
+  if (isSaved(h)) chips.unshift(`<span class="chip saved">Saved</span>`);
   return `<button class="row ${h.status ? "sold" : ""}" type="button" data-id="${h.id}"><span class="p">${fmtK(h.price)}</span><span class="s">${esc(h.street)}</span><span class="m">${esc(h.area)}${h.qual ? " · " + esc(h.qual) : ""} · listed ${esc(listedText(h, true))}<span class="chips">${chips.join("")}</span></span></button>`;
 }
 let restLimit = 80;
@@ -573,15 +645,22 @@ const SORT_NOTE = {
 };
 function renderList() {
   const vis = HOUSES.filter(h => visible(h));
-  const [sortTitle, cmp] = SORTS[state.sort];
-  const rows = vis.sort((a, b) => (a.status > 0) - (b.status > 0) || cmp(a, b));
+  let [sortTitle, cmp] = SORTS[state.sort];
+  if (state.view === "booked") { sortTitle = "Viewings, soonest first"; cmp = (a, b) => (isNaN(bookedAt(a)) ? 9e15 : bookedAt(a)) - (isNaN(bookedAt(b)) ? 9e15 : bookedAt(b)); }
+  else if (state.view === "saved") sortTitle = "Saved · " + sortTitle.toLowerCase();
+  const rows = vis.sort((a, b) => (state.view === "booked" ? 0 : (a.status > 0) - (b.status > 0)) || cmp(a, b));
   ORDER = rows.map(h => h.id);
-  const avail = HOUSES.filter(h => h.status === 0).length, sold = HOUSES.length - avail;
+  const avail = HOUSES.filter(h => h.status === 0).length, sold = HOUSES.filter(h => h.status === 1 || h.status === 2).length;
   const fresh = HOUSES.filter(h => h.status === 0 && h.isNew).length;
   document.getElementById("subtitle").textContent = `${avail} available + ${sold} sold STC/under offer with a garage · ${fresh} new this week · asking ≤ £270,000 · updated ${UPDATED_TEXT}`;
-  document.getElementById("counts").textContent = `Showing ${vis.length} on the map${state.area ? " · " + TOWN_LABEL[state.area] : ""}`;
+  document.getElementById("counts").textContent = state.view === "saved" ? `Showing your ${vis.length} saved on the map` : state.view === "booked" ? `Showing your ${vis.length} booked viewing${vis.length === 1 ? "" : "s"} on the map` : `Showing ${vis.length} on the map${state.area ? " · " + TOWN_LABEL[state.area] : ""}`;
+  const nSaved = HOUSES.filter(isSaved).length, nBooked = HOUSES.filter(isBooked).length;
+  document.querySelectorAll(".viewseg button").forEach(b => {
+    const saved = b.dataset.view === "saved";
+    b.innerHTML = `${saved ? HEART_SVG : CAL_SVG}${saved ? "Saved" : "Booked"}<span class="n">${saved ? nSaved : nBooked}</span>`;
+  });
   // counts on the area buttons follow the other filters
-  const base = HOUSES.filter(h => visible(h, true));
+  const base = HOUSES.filter(h => matchesFilters(h, true));
   document.querySelectorAll(".areaseg button").forEach(b => {
     const a = b.dataset.area, n = a ? base.filter(h => h.town === a).length : base.length;
     b.innerHTML = `${{ "": "All areas", bedworth: "Bedworth", nuneaton: "Nuneaton", coventry: "Coventry" }[a]}<span class="n">${n}</span>`;
@@ -589,9 +668,10 @@ function renderList() {
   const list = document.getElementById("list");
   list.innerHTML = `
     ${DATA.lastRun && DATA.lastRun.ok === false ? `<p class="warnbar">The last automatic check didn't finish (${esc(DATA.lastRun.message)}). These are the listings from ${esc(UPDATED_TEXT)}; it will try again at the next check.</p>` : ""}
-    <p class="note">${SORT_NOTE[state.sort]}</p>
+    ${state.view === "all" ? `<p class="note">${SORT_NOTE[state.sort]}</p>` : `<p class="note">${state.view === "saved" ? "Everything you've saved, whatever the filters above say. Houses that sell or come off the market stay here so you can see what happened." : "Houses where you've booked a viewing. Open one to change the date or remove it."} Saves and bookings are kept in this browser, so your phone and laptop each have their own list.</p>`}
     <div class="legend"><span><i style="background:var(--lawn)"></i>Worth a viewing</span><span><i style="background:var(--pin);border:2px solid var(--pin-ink)"></i>Other available</span><span><i style="background:var(--chip);border:2px solid var(--grey)"></i>Sold STC / under offer</span></div>
     <div class="section-h"><h2>${sortTitle}</h2><span>${rows.length}</span></div>
+    ${!rows.length && state.view !== "all" ? `<p class="empty">${state.view === "saved" ? "Nothing saved yet. Open a house and tap <b>Save</b> to keep it here." : "No viewings booked yet. Open a house and tap <b>Book viewing</b> once you've arranged one."}</p>` : ""}
     ${rows.slice(0, restLimit).map(rowHTML).join("")}
     ${rows.length > restLimit ? `<button class="btn more" type="button" id="moreBtn">Show ${Math.min(80, rows.length - restLimit)} more</button>` : ""}
     <p class="note" style="margin-top:8px">Checked on Rightmove automatically twice a day: every 3+ bed house ≤ £270k within 5 miles of Bedworth that has a garage, trimmed to Bedworth, Nuneaton, Hartshill/Ansley, Bulkington, Exhall/Ash Green/Keresley and north Coventry. Converted garages, “space for a garage” and rented garages are left out. Houses only listed on Zoopla or OnTheMarket aren't picked up automatically.</p>`;
@@ -638,6 +718,20 @@ function detailHTML(h) {
         <h2 class="d-title">${esc(h.street)}</h2>
         <p class="d-sub">${esc(h.area)}</p>
       </div>
+      <div class="mine">
+        <button class="btn ${isSaved(h) ? "on-saved" : ""}" type="button" id="saveBtn" aria-pressed="${isSaved(h)}">${isSaved(h) ? HEART_SVG + "Saved" : HEART_LINE_SVG + "Save"}</button>
+        <button class="btn ${isBooked(h) ? "on-booked" : ""}" type="button" id="bookBtn" aria-expanded="false">${CAL_SVG}${isBooked(h) ? "Change viewing" : "Book viewing"}</button>
+      </div>
+      ${isBooked(h) ? `<div class="bookbox"><p>${esc(bookedText(h))}</p></div>` : ""}
+      <div class="bookbox" id="bookBox" hidden>
+        <label for="bookWhen">When is the viewing? (optional)</label>
+        <input type="datetime-local" id="bookWhen" value="${esc(markOf(h.id).when || "")}">
+        <div class="row2">
+          <button class="btn primary" type="button" id="bookSave">${isBooked(h) ? "Update viewing" : "Mark as booked"}</button>
+          ${isBooked(h) ? `<button class="btn" type="button" id="bookRemove">Remove booking</button>` : ""}
+          <button class="btn" type="button" id="bookCancel">Cancel</button>
+        </div>
+      </div>
       <div class="links">${links.map((l, i) => `<a class="${i === 0 ? "main" : ""}" href="${esc(l[1])}" target="_blank" rel="noopener">${esc(l[0])} ↗</a>`).join("")}</div>
       <div class="block verdict ${h.a.cls}"><h3>Overall verdict</h3><p class="vlabel">${esc(h.a.label)}</p><p>${esc(h.a.summary)}</p></div>
       <div class="pc">
@@ -673,12 +767,7 @@ function select(id, pan) {
   if (!h) return;
   const wasOpen = !!selectedId;
   selectedId = id;
-  const d = document.getElementById("detail");
-  d.innerHTML = detailHTML(h);
-  d.hidden = false; d.scrollTop = 0;
-  document.getElementById("closeBtn").addEventListener("click", closeDetail);
-  document.getElementById("prevBtn").addEventListener("click", () => step(-1));
-  document.getElementById("nextBtn").addEventListener("click", () => step(1));
+  renderDetail(h, false);
   document.querySelector(".app").classList.add("has-detail");
   if (pinEls[id]) pinEls[id].hidden = false;
   markActive();
@@ -686,6 +775,25 @@ function select(id, pan) {
   revealRow(id);
   // the map column narrows when the details column first opens, so resize before panning
   MAP.resize(wasOpen ? 0 : 60, () => { if (pan) MAP.panTo(h.lat, h.lng, 15); });
+}
+// draws the detail panel; keepScroll is used when only the Save / Book buttons changed
+function renderDetail(h, keepScroll) {
+  const d = document.getElementById("detail");
+  const top = d.scrollTop;
+  d.innerHTML = detailHTML(h);
+  d.hidden = false; d.scrollTop = keepScroll ? top : 0;
+  document.getElementById("closeBtn").addEventListener("click", closeDetail);
+  document.getElementById("prevBtn").addEventListener("click", () => step(-1));
+  document.getElementById("nextBtn").addEventListener("click", () => step(1));
+  document.getElementById("saveBtn").addEventListener("click", () => setMark(h.id, { saved: !isSaved(h) }));
+  const box = document.getElementById("bookBox"), bookBtn = document.getElementById("bookBtn");
+  bookBtn.addEventListener("click", () => { box.hidden = !box.hidden; bookBtn.setAttribute("aria-expanded", String(!box.hidden)); if (!box.hidden) document.getElementById("bookWhen").focus(); });
+  document.getElementById("bookCancel").addEventListener("click", () => { box.hidden = true; bookBtn.setAttribute("aria-expanded", "false"); bookBtn.focus(); });
+  // booking a viewing also saves the house
+  document.getElementById("bookSave").addEventListener("click", () => setMark(h.id, { booked: true, saved: true, when: document.getElementById("bookWhen").value || "" }));
+  const rm = document.getElementById("bookRemove");
+  if (rm) rm.addEventListener("click", () => setMark(h.id, { booked: false, when: "" }));
+  updatePos();
 }
 function step(dir) {
   if (!ORDER.length) return;
@@ -720,7 +828,17 @@ function pinEl(h) {
   b.setAttribute("aria-label", `${h.street}, ${fmt(h.price)}${good ? ", worth a viewing" : ""}${h.status ? ", " + STATUS[h.status] : ""}`);
   b.addEventListener("click", e => { e.stopPropagation(); select(h.id, false); });
   pinEls[h.id] = b;
+  pinMarks(h);
   return b;
+}
+// saved houses get a heart and a red ring, booked ones a calendar and a gold ring
+function pinMarks(h) {
+  const b = pinEls[h.id];
+  if (!b) return;
+  const saved = isSaved(h), booked = isBooked(h);
+  b.classList.toggle("mine", saved || booked);
+  b.classList.toggle("is-booked", booked);
+  b.innerHTML = (booked ? CAL_SVG : saved ? HEART_SVG : HOUSE_SVG) + "<span>" + fmtK(h.price) + "</span>";
 }
 
 // ---------- Map engines ----------
@@ -795,9 +913,20 @@ document.getElementById("fPrice").addEventListener("change", e => { state.maxPri
 document.getElementById("fGarage").addEventListener("change", e => { state.garage = e.target.value; restLimit = 80; renderList(); });
 document.getElementById("fType").addEventListener("change", e => { state.type = e.target.value; restLimit = 80; renderList(); });
 document.getElementById("fVerdict").addEventListener("change", e => { state.verdict = e.target.value; restLimit = 80; renderList(); });
+// the area buttons and the Saved / Booked buttons work as one row of tabs
+function pressTab(btn) { document.querySelectorAll(".areaseg button, .viewseg button").forEach(x => x.setAttribute("aria-pressed", String(x === btn))); }
+document.querySelectorAll(".viewseg button").forEach(b => b.addEventListener("click", () => {
+  state.view = b.dataset.view; restLimit = 80;
+  pressTab(b);
+  document.getElementById("list").scrollTop = 0;
+  renderList();
+  const pts = HOUSES.filter(h => visible(h)).map(h => [h.lat, h.lng]);
+  if (pts.length) MAP.fit(pts);
+}));
 document.querySelectorAll(".areaseg button").forEach(b => b.addEventListener("click", () => {
+  state.view = "all";
   state.area = b.dataset.area; restLimit = 80;
-  document.querySelectorAll(".areaseg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  pressTab(b);
   document.getElementById("list").scrollTop = 0;
   renderList();
   // zoom the map to the chosen area's houses
