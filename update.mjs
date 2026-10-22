@@ -18,6 +18,7 @@ export const SETTINGS = {
   maxDetailFetches: 150,     // new listings opened per run
   maxMissingChecks: 60,      // vanished listings checked per run (sold / removed?)
   maxSoldChecks: 12,         // sold STC listings re-checked per run (still there?)
+  maxRereads: 260,           // older listings re-read per run for the detailed check (bedroom sizes, condition, EPC...)
   log: console.log
 };
 
@@ -184,6 +185,78 @@ function featureTags(text, d) {
   return { P, N };
 }
 
+// ---------- Detailed facts a buyer's agent would look at ----------
+export const FACTS_VERSION = 2;
+const NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+// floor area of a room from "3.61m x 2.84m" or "12' 4\" x 10' 2\"" (returns m², 0 if not found)
+function roomArea(s) {
+  let m = s.match(/(\d{1,2}(?:\.\d{1,2})?)\s*m?\s*(?:max\.?\s*)?[x×]\s*(\d{1,2}(?:\.\d{1,2})?)\s*m(?![a-z])/i);
+  if (m) { const a = +m[1] * +m[2]; if (a >= 3 && a <= 45) return a; }
+  m = s.match(/(\d{1,2})\s*(?:'|ft|’)\s*(\d{1,2})?\s*(?:"|''|in|”)?\s*(?:max\.?\s*)?[x×]\s*(\d{1,2})\s*(?:'|ft|’)\s*(\d{1,2})?/i);
+  if (m) { const ft = (f, i) => (+f + (+(i || 0)) / 12) * 0.3048; const a = ft(m[1], m[2]) * ft(m[3], m[4]); if (a >= 3 && a <= 45) return a; }
+  return 0;
+}
+function bedroomSizes(text) {
+  const found = new Map();
+  for (const m of text.matchAll(/\b(?:principal |master |main )?bed ?room\s*(one|two|three|four|five|1|2|3|4|5)\b([^\n]{0,90})/gi)) {
+    const n = NUM[m[1].toLowerCase()] || +m[1];
+    if (found.has(n)) continue;
+    const a = roomArea(m[2].split(/\bbed ?room\b/i)[0]);
+    if (a) found.set(n, Math.round(a * 10) / 10);
+  }
+  return [...found.entries()].sort((a, b) => a[0] - b[0]).map(e => e[1]);
+}
+export function extractFacts(d, text, g, P, N) {
+  const t = text.toLowerCase();
+  const sizes = bedroomSizes(text);
+  const beds = d.beds || 0;
+  let allDoubles = false, smallBed = false;
+  if (sizes.length && sizes.length >= beds) { allDoubles = Math.min(...sizes) >= 9.5; smallBed = Math.min(...sizes) < 7.5; }
+  else {
+    const dbl = t.match(/\b(one|two|three|four|five|1|2|3|4|5|all)\s+(?:good[- ]sized |generous |spacious |well[- ]proportioned |large )?double bedrooms|all (?:three |four |five |of the )?bedrooms (?:are )?(?:good[- ]sized )?doubles?/);
+    if (dbl) { const n = dbl[1] ? (dbl[1] === "all" ? 99 : NUM[dbl[1]] || +dbl[1]) : 99; allDoubles = n >= beds; }
+    smallBed = /box ?room|single bedroom|bedroom (three|3|four|4)[^.\n]{0,40}\b(single|small|compact|box)\b|(small|compact|single) (third|fourth) bedroom|(third|fourth) bedroom (is )?(a )?(small|single|compact)|study\s*\/\s*bedroom|bedroom (three|3)\s*\/\s*study|\bnursery\b/.test(t);
+    if (smallBed) allDoubles = false;
+  }
+  let receptions = 1;
+  const rc = t.match(/\b(two|three|four|2|3|4) (?:separate |good[- ]sized |spacious |generous |versatile )?reception (?:rooms|areas|spaces)/);
+  if (rc) receptions = NUM[rc[1]] || +rc[1];
+  else {
+    const dining = /\bdining room\b/.test(t.replace(/(kitchen|lounge|living|sitting)[\s\/&-]*(and )?(\/ ?)?dining room/g, ""));
+    const second = /\b(sitting room|family room|snug|second reception|playroom|garden room|drawing room)\b/.test(t) && /\b(lounge|living room)\b/.test(t);
+    receptions = 1 + (dining ? 1 : 0) + (second ? 1 : 0);
+  }
+  const epcM = text.replace(/\(EPC\)/gi, "").match(/\b(?:EPC|E\.P\.C\.?|[Ee]nergy [Pp]erformance [Cc]ertificate|[Ee]nergy [Ee]fficiency|[Ee]nergy [Rr]ating)\b[^.\n]{0,40}?(?:[Rr]ating|[Bb]and|[Gg]rade)?\s*(?:is\s*|of\s*)?[:\-–]?\s*\(?([A-G])\b(?![a-z'’])/);
+  const epc = epcM && /^[A-G]$/.test(epcM[1]) ? epcM[1] : "";
+  const excellent = /(fully|recently|extensively|completely|newly|tastefully|sympathetically|beautifully) (renovated|refurbished|modernised|modernized|updated|remodelled|upgraded)|renovated (to a high standard|throughout)|refurbished throughout|high[- ]specification|finished to a high standard/.test(t);
+  const good = /well[- ]presented|well[- ]maintained|beautifully presented|immaculate|move[- ]in ready|ready to move (straight )?in|tastefully|excellent condition|pristine|turn[- ]key|nothing to do|good decorative order/.test(t);
+  const major = N.includes("poor") || /structural (issues|movement|problems)|subsidence|in need of (complete|total|full) /.test(t);
+  const needs = N.includes("reno") || /would benefit from (some |general |cosmetic )?(modernisation|updating|refurbishment|improvement|redecoration)|blank canvas|put your own stamp|scope to (improve|update|modernise|personalise)|investment opportunity|ideal for investors|\bdated\b/.test(t);
+  const cond = Math.max(-2, Math.min(2, (excellent ? 2 : good ? 1 : 0) + (major ? -3 : needs ? -1 : 0) - (major && !excellent && !good ? 1 : 0)));
+  const upgrades = [];
+  if (/(new|newly (fitted|installed)|recently (fitted|installed|replaced)|replacement|brand new) (combi(nation)? |gas |worcester |vaillant |baxi |ideal )?boiler|boiler (was )?(installed|fitted|replaced|renewed) (in )?(20[12]\d|recently|last year)|boiler (is )?(only )?(one|two|three|four|five|\d) years? old/.test(t)) upgrades.push("new boiler");
+  if (/\bre-?wired\b|rewire (in|completed|carried out)|new (electrics|consumer unit|fuse ?board)/.test(t)) upgrades.push("rewired");
+  if (/new roof|roof (was |has been )?(replaced|renewed|re-?covered)|re-?roofed/.test(t)) upgrades.push("new roof");
+  if (/new (upvc |double[- ]glazed |triple[- ]glazed )?windows|windows (were |have been )?(replaced|renewed)/.test(t)) upgrades.push("new windows");
+  if (/(brand new|newly fitted|newly installed|recently (fitted|installed|refitted|replaced)|new|refitted|re-fitted) (fitted |modern |contemporary |shaker |high[- ]gloss )?kitchen/.test(t)) upgrades.push("new kitchen");
+  if (/(brand new|newly fitted|newly installed|recently (fitted|installed|refitted|replaced)|new|refitted|re-fitted) (family |modern |contemporary |luxury )?(bathroom|shower room)/.test(t)) upgrades.push("new bathroom");
+  if (/solar (panels?|pv)|pv panels?/.test(t)) upgrades.push("solar panels");
+  const nonStd = N.includes("cash") || /non[- ]standard construction|concrete construction|no[- ]fines|cornish unit|\bairey\b|steel[- ]framed construction|prefabricated|\bprc\b/.test(t);
+  return {
+    v: FACTS_VERSION,
+    sqft: d.sqft || (() => { const a = t.match(/(\d{1,2},?\d{3}|\d{3})\s?(?:sq\.?\s?ft|sqft|square f(ee|oo)t)/); if (a) return +a[1].replace(",", ""); const b = t.match(/(\d{2,3}(?:\.\d+)?)\s?(?:sq\.?\s?m\b|sqm|square met)/); return b ? Math.round(+b[1] * 10.764) : 0; })(),
+    baths: d.baths || 0, ensuite: P.includes("ensuite"), wc: P.includes("wc"), showerOnly: N.includes("showeronly"),
+    receptions, bedSizes: sizes, allDoubles, smallBed, epc, ctax: d.ctax || "",
+    tenure: d.tenure || (N.includes("lease") ? "LEASEHOLD" : ""), leaseYears: d.leaseYears || 0,
+    chainFree: P.includes("nochain"), cond, upgrades,
+    parking: P.includes("drive2") ? 2 : P.includes("drive") ? 1 : 0,
+    garDouble: g.type.startsWith("Double"), garLarge: P.includes("largegar"), garPower: P.includes("garpower"), garUnclear: g.type.endsWith("?"), garLimited: N.includes("limited"),
+    ext: P.includes("ext"), cons: P.includes("cons"), nonStd,
+    auction: N.includes("auction"), mmoa: N.includes("mmoa"), buyerFee: N.includes("buyerfee"), shared: N.includes("shared"), age: N.includes("age")
+  };
+}
+const listingText = d => [d.keyFeatures.join(".\n"), d.desc, d.rooms.join(".\n")].join("\n");
+
 function typeCode(sub) {
   const s = (sub || "").toLowerCase();
   if (s.includes("bungalow")) return "B";
@@ -218,7 +291,7 @@ const histFrom = p => {
 };
 
 function buildHouse(p, d, day) {
-  const text = [d.keyFeatures.join(".\n"), d.desc, d.rooms.join(".\n")].join("\n");
+  const text = listingText(d);
   const g = classifyGarage(text);
   if (!g.has && !d.rooms.some(r => /^parking - garage|^garage\b/i.test(r))) return { skip: "no real garage (converted, rented or only space for one)" };
   const { P, N } = featureTags(text, d);
@@ -241,7 +314,8 @@ function buildHouse(p, d, day) {
       agent: d.agent || p.customer?.branchDisplayName || "", img: imgPath(d.img || p.propertyImages?.images?.[0]?.url),
       pos: P.join(","), neg: N.join(","), sqft: d.sqft || 0, ctax: d.ctax || "", baths: d.baths || p.bathrooms || 0,
       hist: histFrom(p), listed: p.firstVisibleDate ? isoDay(p.firstVisibleDate) : day, listedEst: false,
-      leaseYears: d.leaseYears || 0, firstSeen: day, lastSeen: day, checked: day, src: "rightmove"
+      leaseYears: d.leaseYears || 0, firstSeen: day, lastSeen: day, checked: day, src: "rightmove",
+      f: extractFacts(d, text, g, P, N)
     }
   };
 }
@@ -259,7 +333,7 @@ export async function runUpdate(db, fetchPage, opts = {}) {
   const seen = new Map();
   const problems = [];
   let sweepComplete = true;
-  const stats = { added: 0, back: 0, sold: 0, removed: 0, cheaper: 0, skipped: 0 };
+  const stats = { added: 0, back: 0, sold: 0, removed: 0, cheaper: 0, skipped: 0, reread: 0 };
 
   // 1. Go through every page of the searches
   for (const [i, q] of S.searches.entries()) {
@@ -326,6 +400,28 @@ export async function runUpdate(db, fetchPage, opts = {}) {
   }
   if (candidates.length > S.maxDetailFetches) log(`${candidates.length - S.maxDetailFetches} more new listings will be read next time`);
 
+  // 3b. Re-read older listings for the detailed check (bedroom sizes, condition, upgrades, EPC...)
+  const stale = db.houses.filter(h => h.status === 0 && h.src === "rightmove" && seen.has(h.id) && (!h.f || h.f.v !== FACTS_VERSION));
+  for (const h of stale.slice(0, S.maxRereads)) {
+    try {
+      const res = await fetchPage(`https://www.rightmove.co.uk/properties/${h.id}`);
+      await pause();
+      const d = res.status === 200 ? parseListingPage(res.text) : null;
+      if (!d) continue;
+      const text = listingText(d);
+      const g = classifyGarage(text);
+      const { P, N } = featureTags(text, d);
+      h.f = extractFacts(d, text, g, P, N);
+      if (d.sqft) h.sqft = d.sqft;
+      if (d.ctax) h.ctax = d.ctax;
+      if (d.baths) h.baths = d.baths;
+      if (!h.gq && g.quote) h.gq = g.quote;
+      stats.reread++;
+    } catch (e) { problems.push(`re-reading ${h.id}: ${e.message}`); }
+  }
+  if (stale.length > S.maxRereads) log(`${stale.length - S.maxRereads} more listings will get the detailed check next time`);
+  if (stats.reread) log(`Detailed check done for ${stats.reread} listings`);
+
   // 4. Houses that dropped out of the search: sold, under offer or taken off?
   const check = async (h, label) => {
     try {
@@ -357,7 +453,7 @@ export async function runUpdate(db, fetchPage, opts = {}) {
   // 5. Tidy up and record how it went
   for (const [id, s] of Object.entries(db.skipped)) if (now - Date.parse(s.seen) > 60 * DAY) delete db.skipped[id];
   if (sweepComplete) db.updated = new Date(now).toISOString();
-  const summary = `${stats.added} new, ${stats.cheaper} price drops, ${stats.sold} sold STC/under offer, ${stats.removed} off the market, ${stats.back} back on the market`;
+  const summary = `${stats.added} new, ${stats.reread} re-checked, ${stats.cheaper} price drops, ${stats.sold} sold STC/under offer, ${stats.removed} off the market, ${stats.back} back on the market`;
   db.lastRun = { at: new Date(now).toISOString(), ok: sweepComplete, message: sweepComplete ? summary : problems[0], problems: problems.slice(0, 10), stats };
   return { ok: sweepComplete, message: summary + (problems.length ? ` (${problems.length} problems: ${problems.slice(0, 3).join("; ")})` : ""), stats };
 }
