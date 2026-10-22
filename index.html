@@ -412,7 +412,7 @@ const HOUSES = DATA.houses.map(r => {
   const street = g && g.street ? g.street : addr.split(",")[0].trim();
   const rawArea = addr.split(",").slice(1).join(",").replace(/\s+/g, " ").trim();
   const area = (rawArea.replace(/,?\s*\b[A-Z]{1,2}\d{1,2}[A-Z]?(\s*\d[A-Z]{2})?\s*$/i, "").replace(/,\s*$/, "").trim() || "Nuneaton / Coventry area") + ", " + pc;
-  return { id, lat: g && g.lat || lat, lng: g && g.lng || lng, price, qual, beds, type, addr, pc, garage, gq, gdq, flags: fl, status, agent, img: img ? (/^https?:/.test(img) ? img : "https://media.rightmove.co.uk/property-photo/" + img) : "", leaseYears: r.leaseYears || 0, url: r.url || "", pick: g || null, note: NOTES[id] || "", street, area };
+  return { id, lat: g && g.lat || lat, lng: g && g.lng || lng, price, qual, beds, type, addr, pc, garage, gq, gdq, flags: fl, status, agent, img: img ? (/^https?:/.test(img) ? img : "https://media.rightmove.co.uk/property-photo/" + img) : "", leaseYears: r.leaseYears || 0, url: r.url || "", hist: r.hist || "", f: r.f && r.f.v >= 2 ? r.f : factsFromTags(r), pick: g || null, street, area };
 });
 
 // ---------- Area (town) for the area switcher ----------
@@ -429,121 +429,139 @@ function townOf(h) {
 HOUSES.forEach(h => { h.town = townOf(h); });
 
 // ---------- Positives, negatives and verdict for every house ----------
-// Per-house features read from each full listing: [positive tags, negative tags, sq ft, council tax band, bathrooms, last listing update]
-const FEAT = Object.fromEntries(DATA.houses.map(r => [r.id, [r.pos || "", r.neg || "", r.sqft || 0, r.ctax || "", r.baths || 0, r.hist || ""]]));
+// Scored the way a buyer's agent would: space and bedroom sizes, condition, the garage, value for money,
+// running costs, tenure and sale terms. Garden size doesn't count, and where the garage sits doesn't count against a house.
 const BEDWORTH = [52.4790, -1.4700];
 const miles = (a, b) => { const R = 3958.8, r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r; const x = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(x)); };
 const MAIN_ROADS = /^(\d+\s+)?(walsgrave road|ansty road|coventry road|nuneaton road|longford road|hall green road|old hinckley road|leicester road|bedworth road|coleshill road|foleshill road|holbrook lane|henley road|sewall highway|radford road|bell green road|newtown road|heath end road|whittleford road|tamworth road|exhall road|keresley road|church road|bulkington road|aldermans green road|holyhead road|barkers butts lane|bennetts road|lutterworth road|attleborough road|weddington road|arbury road|hinckley road)\b/i;
 const listJoin = a => a.length <= 1 ? (a[0] || "") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1];
-const SIMILAR = ["chain", "driveway", "parking", "garage", "garden", "lawn", "band a", "reduced", "bathroom", "en-suite", "presented", "renovat", "budget", "sq ft", "road"];
+const median = a => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+// houses read before the detailed check get the same facts built from their old tags until the updater re-reads them
+function factsFromTags(r) {
+  const P = new Set((r.pos || "").split(",").filter(Boolean)), C = new Set((r.neg || "").split(",").filter(Boolean));
+  const gar = r.garage || "";
+  return {
+    v: 1, sqft: r.sqft || 0, baths: r.baths || 0, ensuite: P.has("ensuite"), wc: P.has("wc"), showerOnly: C.has("showeronly"),
+    receptions: 1, bedSizes: [], allDoubles: false, smallBed: false, epc: "", ctax: r.ctax || "",
+    tenure: C.has("lease") ? "LEASEHOLD" : "", leaseYears: r.leaseYears || 0, chainFree: P.has("nochain"),
+    cond: C.has("poor") ? -2 : C.has("reno") ? -1 : P.has("wellpres") ? 1 : 0, upgrades: P.has("modern") ? ["modern kitchen or bathroom"] : [],
+    parking: P.has("drive2") ? 2 : P.has("drive") ? 1 : 0,
+    garDouble: gar.startsWith("Double"), garLarge: P.has("largegar"), garPower: P.has("garpower"), garUnclear: gar.endsWith("?"), garLimited: C.has("limited"),
+    ext: P.has("ext"), cons: P.has("cons"), nonStd: C.has("cash"),
+    auction: C.has("auction"), mmoa: C.has("mmoa"), buyerFee: C.has("buyerfee"), shared: C.has("shared"), age: C.has("age")
+  };
+}
+// local asking price per square foot, for judging value
+const PPSF = {};
+{
+  const rows = HOUSES.filter(h => h.status === 0 && h.f.sqft >= 500).map(h => [h.town, h.price / h.f.sqft]);
+  const overall = median(rows.map(x => x[1]));
+  for (const t of ["bedworth", "nuneaton", "coventry"]) { const v = rows.filter(x => x[0] === t).map(x => x[1]); PPSF[t] = v.length >= 10 ? median(v) : overall; }
+}
+const TYPE_PRO = { D: [4, "Detached"], S: [2, "Semi-detached"], B: [2, "Bungalow, everything on one level"], L: [2, "Link-detached"], E: [1, "End of terrace"] };
 function assess(h) {
-  const f = FEAT[h.id] || ["", "", 0, "", 0, ""];
-  const P = new Set(f[0].split(",").filter(Boolean)), C = new Set(f[1].split(",").filter(Boolean));
-  const sqft = f[2], ctax = f[3], baths = f[4], hist = f[5];
-  const pros = [], cons = [];
+  const f = h.f, pros = [], cons = [], ask = [];
   const add = (arr, w, text, short) => arr.push({ w, text, short });
-  // garage
-  const gb = h.garage.replace("?", "");
-  if (gb.startsWith("Double")) add(pros, 10, "Double garage", "a double garage");
-  else if (gb === "Detached") add(pros, 6, "Detached garage, separate from the house", "a detached garage");
-  else if (gb === "Integral") add(pros, 4, "Integral garage with access from inside", "an integral garage");
-  else if (gb === "Attached") add(pros, 3, "Garage attached at the side", "a side garage");
-  else if (gb === "Block") add(cons, -8, "Garage is in a separate block, not on the plot", "the garage being in a separate block");
-  else add(cons, -1, "Listing doesn't say where the garage is", "no detail on where the garage is");
-  if (h.garage.endsWith("?")) add(cons, -6, "Garage wording is unclear (may be a store or part-converted), so check it", "unclear garage wording");
-  if (P.has("largegar")) add(pros, 5, "Large garage or workshop", "a large garage");
-  if (P.has("garpower")) add(pros, 1, "Garage has power and light", "power in the garage");
-  if (C.has("limited")) add(cons, -8, "Garage access is limited or it's being used as storage", "limited garage access");
-  // garden
-  if (P.has("biggdn")) add(pros, 12, "Listing describes a large, generous or long garden", "a garden described as large");
-  if (P.has("lawn")) add(pros, 4, "Lawned garden", "a lawn");
-  if (P.has("south")) add(pros, 3, "South-facing garden", "a south-facing garden");
-  if (P.has("corner")) add(pros, 4, "Corner plot, often with extra side garden", "a corner plot");
-  if (P.has("views")) add(pros, 4, "Open outlook or not overlooked", "an open outlook");
-  if (C.has("lowmaint")) add(cons, -10, "Garden described as low-maintenance, paved or artificial, so probably small", "a small, low-maintenance garden");
-  if (!P.has("biggdn") && !P.has("lawn") && !C.has("lowmaint") && !h.pick) add(cons, -3, "Listing says little about the garden; check its size on the aerial view", "little detail on the garden");
-  if (h.pick) add(pros, 22, "Big garden measured from aerial imagery, garage confirmed", "a big garden I measured");
-  // the house
-  if (P.has("nochain")) add(pros, 4, "No onward chain", "no chain");
-  if (P.has("drive2")) add(pros, 4, "Driveway for two or more cars", "parking for 2+ cars");
-  else if (P.has("drive")) add(pros, 2, "Driveway / off-road parking", "a driveway");
-  if (baths >= 2) add(pros, 3, `${baths} bathrooms / shower rooms`, `${baths} bathrooms`);
-  else if (P.has("ensuite")) add(pros, 2, "En-suite to the main bedroom", "an en-suite");
-  if (P.has("ext")) add(pros, 3, "Extended, so more living space", "an extension");
-  if (P.has("cons")) add(pros, 1, "Conservatory or sun room", "a conservatory");
-  if (P.has("modern")) add(pros, 3, "Modern or refitted kitchen/bathroom", "a modern kitchen/bathroom");
-  if (P.has("wellpres")) add(pros, 4, "Well presented, likely ready to move into", "good condition");
-  if (P.has("wc")) add(pros, 1, "Downstairs WC", "a downstairs WC");
-  if (P.has("solar")) add(pros, 1, "Solar panels", "solar panels");
-  if (sqft >= 1000) add(pros, 4, `Spacious: about ${sqft.toLocaleString("en-GB")} sq ft`, `about ${sqft.toLocaleString("en-GB")} sq ft of space`);
-  else if (sqft && sqft < 760) add(cons, -4, `Small for a 3-bed: about ${sqft} sq ft`, "a small house");
-  if (h.beds >= 4) add(pros, 3, `${h.beds} bedrooms`, `${h.beds} bedrooms`);
-  if (C.has("showeronly")) add(cons, -2, "Shower room only, no bath", "no bath");
-  if (C.has("poor")) add(cons, -15, "Needs major renovation", "major renovation needed");
-  else if (C.has("reno")) add(cons, -6, "Needs some updating or modernising", "updating needed");
-  if (h.type === "T") add(cons, -2, "Mid-terrace (neighbours on both sides)", "being mid-terrace");
-  if (ctax === "A") add(pros, 2, "Council tax band A (the cheapest)", "band A council tax");
-  else if (/^[D-H]$/.test(ctax)) add(cons, -2, `Council tax band ${ctax}`, `band ${ctax} council tax`);
-  // money and legal
-  if (h.price <= 190000) add(pros, 5, `Low price (${fmtK(h.price)}), leaving budget for improvements`, "a low price");
-  else if (h.price <= 215000) add(pros, 2, `Comfortably under budget (${fmtK(h.price)})`, "a price well under budget");
-  if (h.price >= 265000) add(cons, -3, "At the top of your budget", "being at the top of your budget");
-  if (/offers over/i.test(h.qual) && h.price >= 255000) add(cons, -6, "“Offers over” close to £270k, so it may go above your budget", "“offers over” pricing near £270k");
-  if (C.has("mmoa")) add(cons, -12, "Modern Method of Auction: non-refundable reservation fee on top and completion within 56 days", "auction terms and fees");
-  else if (C.has("auction")) add(cons, -10, "Auction sale: fast completion and fees", "auction terms");
-  if (C.has("shared")) add(cons, -30, "Shared ownership: the price is for a share, with rent on the rest", "shared ownership");
-  if (C.has("buyerfee")) add(cons, -6, "Agent charges a buyer's fee on top of the price", "a buyer's fee");
-  if (C.has("cash")) add(cons, -15, "Cash buyers only / non-standard construction, so a mortgage may be hard", "cash buyers only");
+  // space
+  if (f.sqft) {
+    const s = f.sqft.toLocaleString("en-GB");
+    if (f.sqft >= 1200) add(pros, 9, `Generous floor area: about ${s} sq ft`, "lots of space");
+    else if (f.sqft >= 1050) add(pros, 7, `Roomy: about ${s} sq ft`, "a roomy layout");
+    else if (f.sqft >= 950) add(pros, 4, `Above-average floor area: about ${s} sq ft`, "above-average space");
+    else if (f.sqft < 750) add(cons, -6, `Small for a ${h.beds}-bed: about ${s} sq ft`, "a small floor area");
+    else if (f.sqft < 850) add(cons, -2, `On the small side: about ${s} sq ft`, "a smallish floor area");
+  } else ask.push("What's the internal floor area? It isn't in the listing, so check the floorplan.");
+  if (h.beds >= 5) add(pros, 6, `${h.beds} bedrooms`, `${h.beds} bedrooms`);
+  else if (h.beds === 4) add(pros, 5, "4 bedrooms", "4 bedrooms");
+  if (f.allDoubles) add(pros, 6, f.bedSizes.length ? `Every bedroom fits a double bed (smallest about ${Math.min(...f.bedSizes).toFixed(1)} m²)` : "Every bedroom is described as a double", "all double bedrooms");
+  if (f.smallBed) add(cons, -5, f.bedSizes.length ? `Smallest bedroom is only about ${Math.min(...f.bedSizes).toFixed(1)} m², so a single bed at most` : "One bedroom is a box room or single", "a box-room bedroom");
+  if (!f.allDoubles && !f.smallBed) ask.push("How big is the smallest bedroom? Check it on the floorplan.");
+  if (f.receptions >= 2) add(pros, 4, `${f.receptions} reception rooms`, `${f.receptions} reception rooms`);
+  if (f.ext) add(pros, 3, "Extended, so more living space than the original house", "an extension");
+  if (f.cons) add(pros, 1, "Conservatory or sun room", "a conservatory");
+  if (f.baths >= 2) add(pros, 4, `${f.baths} bathrooms / shower rooms`, `${f.baths} bathrooms`);
+  else if (f.ensuite) add(pros, 3, "En-suite to the main bedroom", "an en-suite");
+  if (f.wc) add(pros, 2, "Downstairs WC", "a downstairs WC");
+  if (f.showerOnly) add(cons, -2, "Shower room only, no bath", "no bath");
+  // condition
+  if (f.cond >= 2) add(pros, 9, "Recently renovated or modernised throughout", "a recent renovation");
+  else if (f.cond === 1) add(pros, 5, "Well presented, should be ready to move into", "good condition");
+  else if (f.cond === -1) add(cons, -8, "Needs updating, so budget for work on top of the price", "updating needed");
+  else if (f.cond <= -2) add(cons, -18, "Needs major renovation", "major work needed");
+  const up = f.upgrades || [];
+  if (up.length) add(pros, Math.min(8, up.length * 2), "Recent upgrades: " + listJoin(up), listJoin(up.slice(0, 2)));
+  if (f.cond <= 0 && !up.includes("new boiler")) ask.push("How old are the boiler, wiring and roof?");
+  // garage (where it sits doesn't count against a house)
+  if (f.garDouble) add(pros, 6, "Double garage", "a double garage");
+  if (f.garLarge) add(pros, 4, "Larger-than-average garage or workshop", "a big garage");
+  if (f.garPower) add(pros, 1, "Garage has power and lighting", "power in the garage");
+  if (f.garUnclear) { add(cons, -3, "Garage wording is unclear, so make sure it's a usable garage", "unclear garage wording"); ask.push("Does a car fit in the garage, and is it included in the sale?"); }
+  if (f.garLimited) add(cons, -3, "Garage access is limited or it's used as storage", "limited garage access");
+  if (h.garage.replace("?", "") === "Block") ask.push("Is the garage in the block owned outright, and how far is it from the house?");
+  // parking
+  if (f.parking >= 2) add(pros, 3, "Driveway for two or more cars", "parking for 2+ cars");
+  else if (f.parking === 1) add(pros, 2, "Driveway or off-road parking", "a driveway");
+  // value for money
+  if (f.sqft >= 500 && PPSF[h.town]) {
+    const p = h.price / f.sqft, m = PPSF[h.town], ratio = p / m;
+    if (ratio <= 0.88) add(pros, 5, `Good value: £${Math.round(p)} per sq ft against about £${Math.round(m)} locally`, "good value for the space");
+    else if (ratio >= 1.12) add(cons, -4, `Pricey for the space: £${Math.round(p)} per sq ft against about £${Math.round(m)} locally`, "a high price for the space");
+  }
+  // running costs
+  if (f.epc) {
+    if ("AB".includes(f.epc)) add(pros, 4, `EPC rating ${f.epc}: low energy bills`, "a good energy rating");
+    else if (f.epc === "C") add(pros, 2, "EPC rating C: decent energy efficiency", "an EPC C rating");
+    else if (f.epc === "E") add(cons, -3, "EPC rating E: higher bills, and improvements cost money", "a poor energy rating");
+    else if ("FG".includes(f.epc)) add(cons, -8, `EPC rating ${f.epc}: expensive to heat and costly to improve`, "a very poor energy rating");
+  } else ask.push("What's the EPC (energy) rating?");
+  if (f.ctax === "A") add(pros, 1, "Council tax band A (the cheapest)", "band A council tax");
+  else if (/^[E-H]$/.test(f.ctax)) add(cons, -2, `Council tax band ${f.ctax}`, `band ${f.ctax} council tax`);
+  // type of house
+  if (TYPE_PRO[h.type]) add(pros, TYPE_PRO[h.type][0], TYPE_PRO[h.type][1], "being " + TYPE_PRO[h.type][1].split(",")[0].toLowerCase());
+  else if (h.type === "T") add(cons, -1, "Mid-terrace, with neighbours on both sides", "being mid-terrace");
+  // chain, tenure and how it's being sold
+  if (f.chainFree) add(pros, 4, "No onward chain, so a quicker sale with less risk of it falling through", "no chain");
+  else ask.push("Is the seller in a chain?");
   if (h.flags.includes("lease37")) add(cons, -30, "Very short lease (about 37 years left): cash buyers only", "a very short lease");
   else if (h.flags.includes("shortlease")) add(cons, -25, `Short lease${h.leaseYears ? ` (about ${h.leaseYears} years left)` : ""}: hard to get a mortgage`, "a short lease");
-  else if (C.has("lease")) add(cons, -4, "Leasehold: check lease length, ground rent and service charges", "being leasehold");
-  // how long on the market
-  const m = hist.match(/^([RA])(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (hist.startsWith("R")) add(pros, 2, "Price already reduced" + (m ? ` (on ${m[2]}/${m[3]})` : "") + ", so the seller may negotiate", "a recent price cut");
-  else if (m && new Date(+m[4], +m[3] - 1, +m[2]) < new Date(Date.now() - 92 * 864e5)) add(pros, 1, `On the market since ${m[2]}/${m[3]}/${m[4]}, so there may be room to negotiate`, "room to negotiate");
+  else if (f.tenure === "LEASEHOLD") { add(cons, -5, "Leasehold: check the lease length, ground rent and service charge", "being leasehold"); ask.push("How many years are left on the lease, and what are the ground rent and service charge?"); }
+  if (f.shared) add(cons, -30, "Shared ownership: the price is for a share, with rent on the rest", "shared ownership");
+  if (f.nonStd) add(cons, -15, "Non-standard construction or cash buyers only, so many lenders won't offer a mortgage", "mortgage problems");
+  if (f.mmoa) { add(cons, -12, "Modern Method of Auction: non-refundable reservation fee on top and completion within 56 days", "auction terms and fees"); ask.push("What's the reservation fee in total?"); }
+  else if (f.auction) add(cons, -10, "Auction sale: fast completion, extra fees, and the mortgage has to be ready first", "auction terms");
+  if (f.buyerFee) add(cons, -6, "Agent charges a buyer's fee on top of the price", "a buyer's fee");
+  if (f.age) add(cons, -10, "Age-restricted (retirement or over-55s)", "an age restriction");
+  // budget
+  if (/offers over/i.test(h.qual) && h.price >= 255000) add(cons, -5, "“Offers over” close to £270k, so it may go above budget", "“offers over” near £270k");
+  else if (h.price >= 265000) add(cons, -2, "At the top of the budget", "being at the top of the budget");
+  // time on the market
+  const m = h.hist.match(/^([RA])(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (h.hist.startsWith("R")) { add(pros, 1, "Price already reduced" + (m ? ` (on ${m[2]}/${m[3]})` : "") + ", so there may be room to negotiate", "a price cut"); ask.push("Why was the price reduced, and have there been any offers?"); }
+  else if (m && new Date(+m[4], +m[3] - 1, +m[2]) < new Date(Date.now() - 92 * 864e5)) { add(pros, 1, `On the market since ${m[2]}/${m[3]}/${m[4]}, so there may be room to negotiate`, "room to negotiate"); ask.push("Why hasn't it sold yet?"); }
   // location
   const d = miles(BEDWORTH, [h.lat, h.lng]);
-  if (d <= 1.5) add(pros, 3, `About ${d.toFixed(1)} miles from Bedworth town centre`, "being close to Bedworth");
-  else if (d > 4.5) add(cons, -4, `About ${d.toFixed(1)} miles from Bedworth`, "the distance from Bedworth");
-  if (MAIN_ROADS.test(h.street)) add(cons, -3, "On a main road, so check traffic noise", "a main-road position");
+  if (d <= 1.5) add(pros, 2, `About ${d.toFixed(1)} miles from Bedworth town centre`, "being close to Bedworth");
+  else if (d > 4.5) add(cons, -2, `About ${d.toFixed(1)} miles from Bedworth`, "the distance from Bedworth");
+  if (MAIN_ROADS.test(h.street)) { add(cons, -3, "On a main road, so check the traffic noise", "a main-road position"); ask.push("Visit at rush hour to hear the traffic."); }
   if (h.status) add(cons, -40, ["", "Already sold subject to contract", "Already under offer", "No longer listed on Rightmove"][h.status], "already being sold");
   const score = 50 + pros.reduce((a, p) => a + p.w, 0) + cons.reduce((a, c) => a + c.w, 0);
   pros.sort((a, b) => b.w - a.w); cons.sort((a, b) => a.w - b.w);
-  let label, cls;
-  if (h.status) { label = ["", "Sold STC: only if the sale falls through", "Under offer: only if it falls through", "Off the market"][h.status]; cls = "bad"; }
-  else if (C.has("shared") || C.has("cash") || h.flags.includes("lease37") || h.flags.includes("shortlease")) { label = "Not worth it for you"; cls = "bad"; }
-  else if (h.pick) { label = "Worth a viewing: one I checked closely"; cls = "good"; }
-  else if (score >= 75) { label = "Worth a viewing"; cls = "good"; }
-  else if (score >= 57) { label = "Maybe: check it in person"; cls = "mid"; }
-  else { label = "Probably not worth it"; cls = "bad"; }
-  // summary picks: strongest points, mentioning the garage only once
-  const pick = (arr, n) => { const out = []; let garage = false; for (const x of arr) { const isGar = /garage/.test(x.short); if (isGar && garage) continue; garage = garage || isGar; out.push(x.short); if (out.length === n) break; } return out; };
-  const top = pick(pros, 3), worst = pick(cons, 2);
+  let label, short, cls;
+  if (h.status) { label = ["", "Sold STC: only if the sale falls through", "Under offer: only if it falls through", "Off the market"][h.status]; short = STATUS[h.status]; cls = "bad"; }
+  else if (f.shared || f.nonStd || f.age || h.flags.includes("lease37") || h.flags.includes("shortlease")) { label = "Not suitable for a normal mortgage purchase"; short = "Not suitable"; cls = "bad"; }
+  else if (score >= 78) { label = "Strong candidate: book a viewing"; short = "Strong candidate"; cls = "good"; }
+  else if (score >= 66) { label = "Worth a viewing"; short = "Worth a viewing"; cls = "good"; }
+  else if (score >= 54) { label = "Maybe: check it in person"; short = "Maybe"; cls = "mid"; }
+  else { label = "Probably not worth it"; short = "Probably not"; cls = "bad"; }
+  const top = pros.slice(0, 3).map(p => p.short), worst = cons.slice(0, 3).map(c => c.short);
   let summary;
-  if (h.pick && !h.status) summary = h.pick.why;
-  else if (h.note) summary = h.note;
-  else if (h.status === 3) summary = "This house has been taken off Rightmove, so it's either sold or the seller has withdrawn it.";
-  else if (h.status) summary = `It's ${h.status === 1 ? "sold subject to contract" : "under offer"}, so it's only worth chasing if that sale falls through.` + (top.length ? ` On paper it has ${listJoin(top)}.` : "");
-  else if (cls === "good") summary = `A good match on paper: ${listJoin(top)}.` + (worst.length ? ` Watch out for ${listJoin(worst)}.` : "") + " The garden size comes from the listing text; I haven't measured it, so check it on the aerial view.";
-  else if (cls === "mid") summary = (top.length ? `It has ${listJoin(top)}, but ` : "") + `it doesn't stand out against the best options.` + (worst.length ? ` Main drawback: ${listJoin(worst)}.` : "");
-  else summary = (worst.length ? `Held back by ${listJoin(worst)}.` : "Not a strong match.") + (top.length ? ` Its plus points (${listJoin(top)}) don't make up for that.` : "");
-  return { pros, cons, score, label, cls, summary };
+  if (h.status === 3) summary = "This house has been taken off Rightmove, so it's either sold or the seller has withdrawn it.";
+  else if (h.status) summary = `It's ${h.status === 1 ? "sold subject to contract" : "under offer"}, so it's only worth chasing if that sale falls through.`;
+  else summary = (top.length ? `Strengths: ${listJoin(top)}.` : "Nothing in the listing stands out.") + (worst.length ? ` Watch-outs: ${listJoin(worst)}.` : " No obvious drawbacks in the listing.");
+  if (f.v < 2) summary += " Bedroom sizes, condition and energy rating haven't been checked in detail yet; that happens at the next update.";
+  return { pros, cons, score, label, short, cls, summary, ask: ask.slice(0, 5), prosText: pros.map(p => p.text), consText: cons.map(c => c.text) };
 }
-HOUSES.forEach(h => {
-  h.a = assess(h);
-  if (h.pick) {
-    const g = h.pick, curated = g.pros.concat(g.cons).join(" ").toLowerCase();
-    // my measured garden and confirmed garage notes replace the listing-text versions for these houses
-    const covered = /garden|garage|lawn|plot|outlook|south-facing/i;
-    const extraP = h.a.pros.filter(p => !covered.test(p.text) && !SIMILAR.some(k => p.text.toLowerCase().includes(k) && curated.includes(k)));
-    const extraC = h.a.cons.filter(c => !covered.test(c.text) && !SIMILAR.some(k => c.text.toLowerCase().includes(k) && curated.includes(k)));
-    h.a.prosText = g.pros.concat(extraP.map(p => p.text)).slice(0, 9);
-    h.a.consText = g.cons.concat(g.reno && !/^(none|nothing|little)/i.test(g.reno) ? [g.reno] : []).concat(extraC.map(c => c.text)).slice(0, 7);
-  } else {
-    h.a.prosText = h.a.pros.map(p => p.text);
-    h.a.consText = h.a.cons.map(c => c.text);
-  }
-});
+HOUSES.forEach(h => { h.a = assess(h); });
 
 // ---------- When each house was listed ----------
 // "listed" is Rightmove's first-listed date. A few older entries (listedEst) were estimated from the listing number.
@@ -622,7 +640,7 @@ function rowHTML(h) {
   const chips = [`<span class="chip">${h.beds} bed ${esc(TYPE[h.type].replace(" house", "").toLowerCase())}</span>`, `<span class="chip">${esc(garageShort(h.garage))}</span>`];
   if (h.status) chips.push(`<span class="chip bad">${STATUS[h.status]}</span>`);
   h.flags.forEach(f => FLAG[f] && chips.push(`<span class="chip ${FLAG[f][1]}">${esc(FLAG[f][0].split(":")[0])}</span>`));
-  if (!h.status) chips.unshift(`<span class="chip v-${h.a.cls}">${esc(VERDICT_SHORT[h.a.cls])}</span>`);
+  if (!h.status) chips.unshift(`<span class="chip v-${h.a.cls}">${esc(h.a.short)}</span>`);
   if (h.isNew && !h.status) chips.unshift(`<span class="chip new">New</span>`);
   if (isBooked(h)) chips.unshift(`<span class="chip booked">${esc(bookedText(h, true))}</span>`);
   if (isSaved(h)) chips.unshift(`<span class="chip saved">Saved</span>`);
@@ -638,7 +656,7 @@ const SORTS = {
   newest: ["Newest listed first", (a, b) => b.listed - a.listed || b.a.score - a.a.score]
 };
 const SORT_NOTE = {
-  rec: "<b>Recommended</b> scores every house on its garage, garden, condition, price and distance from Bedworth, and pushes catches (auction terms, shared ownership, major renovation, “offers over” near £270k) down. Houses whose garden I measured from aerial imagery get a boost.",
+  rec: "<b>Recommended</b> ranks houses the way a buyer's agent would: floor area and bedroom sizes, bathrooms, condition and recent upgrades, the garage, value for money (£ per sq ft), energy rating, tenure, chain and sale terms. Garden size doesn't count, and where the garage sits doesn't count against a house.",
   price: "Cheapest asking price first.",
   priceDesc: "Highest asking price first.",
   newest: "Newest listings first. Dates with a <b>~</b> are estimated from the Rightmove listing number, because the listing only showed a “reduced on” date. <b>New</b> = listed in the last 7 days."
@@ -707,7 +725,7 @@ function detailHTML(h) {
       <button class="btn" type="button" id="prevBtn" aria-label="Previous house">↑ Prev</button>
       <button class="btn" type="button" id="nextBtn" aria-label="Next house">Next ↓</button>
       <span class="pos" id="pos"></span>
-      <span class="chip ${h.status ? "bad" : "v-" + h.a.cls}">${h.status ? STATUS[h.status] : VERDICT_SHORT[h.a.cls]}</span>
+      <span class="chip ${h.status ? "bad" : "v-" + h.a.cls}">${esc(h.a.short)}</span>
       <button class="btn" type="button" id="closeBtn" aria-label="Close details">✕</button>
     </div>
     <div class="detail-body">
@@ -738,17 +756,24 @@ function detailHTML(h) {
         <div class="block"><h3>Positives</h3>${h.a.prosText.length ? `<ul class="pl pros">${h.a.prosText.map(p => `<li>${esc(p)}</li>`).join("")}</ul>` : `<p class="small">Nothing stands out in the listing.</p>`}</div>
         <div class="block"><h3>Negatives</h3>${h.a.consText.length ? `<ul class="pl cons">${h.a.consText.map(p => `<li>${esc(p)}</li>`).join("")}</ul>` : `<p class="small">No obvious drawbacks in the listing.</p>`}</div>
       </div>
+      ${h.a.ask.length && h.status !== 3 ? `<div class="block"><h3>Questions to ask the agent</h3><ul class="pl">${h.a.ask.map(q => `<li>${esc(q)}</li>`).join("")}</ul></div>` : ""}
       ${flags ? `<div class="chips">${flags}</div>` : ""}
       <div class="facts">
         <div class="fact"><b>Area</b><span>${esc(TOWN_LABEL[h.town])}</span></div>
         <div class="fact"><b>Type</b><span>${esc(TYPE[h.type])}</span></div>
-        <div class="fact"><b>Bedrooms</b><span>${h.beds}</span></div>
+        <div class="fact"><b>Bedrooms</b><span>${h.beds}${h.f.bedSizes.length ? ` <span class="small">(${h.f.bedSizes.map(x => x.toFixed(1)).join(", ")} m²)</span>` : ""}</span></div>
+        <div class="fact"><b>Bathrooms</b><span>${h.f.baths || "?"}</span></div>
+        <div class="fact"><b>Floor area</b><span>${h.f.sqft ? "~" + h.f.sqft.toLocaleString("en-GB") + " sq ft" : "Not given"}</span></div>
+        <div class="fact"><b>Price per sq ft</b><span>${h.f.sqft >= 500 ? "£" + Math.round(h.price / h.f.sqft) + ` <span class="small">(area ~£${Math.round(PPSF[h.town])})</span>` : "–"}</span></div>
+        <div class="fact"><b>EPC</b><span>${esc(h.f.epc || "Ask")}</span></div>
+        <div class="fact"><b>Council tax</b><span>${h.f.ctax && h.f.ctax !== "TBC" ? "Band " + esc(h.f.ctax) : "Ask"}</span></div>
+        <div class="fact"><b>Tenure</b><span>${h.f.tenure ? esc(h.f.tenure[0] + h.f.tenure.slice(1).toLowerCase()) : "Not stated"}</span></div>
         <div class="fact"><b>Status</b><span>${STATUS[h.status]}</span></div>
         <div class="fact"><b>Listed</b><span>${esc(listedText(h))}</span></div>
       </div>
       <div class="block"><h3>Garage <span class="conf ${h.garage.endsWith("?") ? "est" : "ok"}">${h.garage.endsWith("?") ? "Wording unclear, check" : "Mentioned in listing"}</span></h3>
         <p>${esc(g ? g.garage : garageText(h.garage))}</p>${!g && h.gq ? `<p class="quote small">Listing: “${esc(h.gq)}”</p>` : ""}</div>
-      <div class="block garden"><h3>Garden <span class="conf est">${g ? "My aerial measurement (estimate)" : "Listing text only, not measured"}</span></h3>
+      <div class="block garden"><h3>Garden <span class="conf est">${g ? "My aerial measurement, not scored" : "Listing text only, not scored"}</span></h3>
         <p>${g ? esc(g.garden) : h.gdq ? `<span class="quote">“${esc(h.gdq)}”</span>` : "The listing doesn't describe the garden. Use the aerial view link below to judge it."}</p></div>
       ${h.agent ? `<p class="small">Agent: ${esc(h.agent)}</p>` : ""}
       <div class="links"><a href="${gm}" target="_blank" rel="noopener">Open in Google Maps ↗</a><a href="${sat}" target="_blank" rel="noopener">Aerial view ↗</a><a href="${sv}" target="_blank" rel="noopener">Street View ↗</a></div>
